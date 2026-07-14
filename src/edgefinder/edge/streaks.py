@@ -205,13 +205,211 @@ def match_streak_table(engine: Engine, home: str, away: str, n: int) -> pd.DataF
     return streak_table(last_matches(engine, home, n), last_matches(engine, away, n), home, away, n)
 
 
+# --- estatísticas de time (escanteios, cartões, faltas, chutes) --------------
+
+# Condições sobre a visão de stats do time. Cada uma declara as colunas de que
+# depende: o denominador conta só os jogos em que o dado existe (escanteios e
+# cartões vêm do football-data.co.uk — Europa; o Brasileirão não tem).
+STAT_CONDITIONS: list[tuple[str, str, list[str], _Condition]] = [
+    (
+        "corners_over_8.5",
+        "mais de 8.5 escanteios no jogo",
+        ["corners", "corners_opp"],
+        lambda v: (v["corners"] + v["corners_opp"]) > 8.5,
+    ),
+    (
+        "corners_over_9.5",
+        "mais de 9.5 escanteios no jogo",
+        ["corners", "corners_opp"],
+        lambda v: (v["corners"] + v["corners_opp"]) > 9.5,
+    ),
+    (
+        "corners_over_10.5",
+        "mais de 10.5 escanteios no jogo",
+        ["corners", "corners_opp"],
+        lambda v: (v["corners"] + v["corners_opp"]) > 10.5,
+    ),
+    (
+        "team_corners_over_4.5",
+        "o time bateu mais de 4.5 escanteios",
+        ["corners"],
+        lambda v: v["corners"] > 4.5,
+    ),
+    (
+        "cards_over_3.5",
+        "mais de 3.5 cartoes no jogo",
+        ["cards", "cards_opp"],
+        lambda v: (v["cards"] + v["cards_opp"]) > 3.5,
+    ),
+    (
+        "cards_over_4.5",
+        "mais de 4.5 cartoes no jogo",
+        ["cards", "cards_opp"],
+        lambda v: (v["cards"] + v["cards_opp"]) > 4.5,
+    ),
+    (
+        "team_cards_over_1.5",
+        "o time levou mais de 1.5 cartoes",
+        ["cards"],
+        lambda v: v["cards"] > 1.5,
+    ),
+    (
+        "team_sot_over_4.5",
+        "o time deu mais de 4.5 chutes no gol",
+        ["shots_on_target"],
+        lambda v: v["shots_on_target"] > 4.5,
+    ),
+]
+
+# (rótulo, coluna feita, coluna sofrida) para a tabela de médias por jogo.
+_AVG_STATS: list[tuple[str, str, str]] = [
+    ("gols", "gf", "ga"),
+    ("chutes", "shots", "shots_opp"),
+    ("chutes no gol", "shots_on_target", "shots_on_target_opp"),
+    ("escanteios", "corners", "corners_opp"),
+    ("faltas", "fouls", "fouls_opp"),
+    ("cartoes", "cards", "cards_opp"),
+]
+
+
+def team_stats_streaks(view: pd.DataFrame, n: int) -> list[StreakLine]:
+    """Contagens de escanteios/cartões/chutes nos últimos n jogos COM dado.
+
+    Condição sem nenhum jogo com dado fica de fora (em vez de "0/0" enganoso).
+    """
+    last = view.head(n)
+    out: list[StreakLine] = []
+    for key, label, needed, cond in STAT_CONDITIONS:
+        if any(col not in last.columns for col in needed):
+            continue
+        with_data = last.dropna(subset=needed)
+        if with_data.empty:
+            continue
+        out.append(
+            StreakLine(key=key, label=label, hits=int(cond(with_data).sum()), total=len(with_data))
+        )
+    return out
+
+
+def team_stats_averages(view: pd.DataFrame, n: int) -> pd.DataFrame:
+    """Médias por jogo (feitas e sofridas) nos últimos n jogos com dado.
+
+    Colunas: stat, media, media sofrida, jogos com dado.
+    """
+    last = view.head(n)
+    rows = []
+    for label, col_for, col_against in _AVG_STATS:
+        if col_for not in last.columns:
+            continue
+        with_data = last.dropna(subset=[col_for])
+        if with_data.empty:
+            continue
+        against = (
+            float(with_data[col_against].mean())
+            if col_against in with_data.columns
+            else float("nan")
+        )
+        rows.append(
+            {
+                "stat": label,
+                "media": round(float(with_data[col_for].mean()), 2),
+                "media sofrida": round(against, 2),
+                "jogos": len(with_data),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def player_summary(players: pd.DataFrame) -> pd.DataFrame:
+    """Agrega as linhas jogador-jogo dos últimos N jogos do time em uma tabela.
+
+    Colunas: jogador, jogos, min, gols, marcou em, assist, chutes, no gol,
+    cartoes, faltas. Só entra quem esteve em campo (minutos > 0). Soma de stat
+    inteiramente ausente na fonte (ex.: cartões no Understat) vira NaN, não 0.
+    """
+    if players.empty:
+        return pd.DataFrame()
+    on_pitch = players[players["minutes"].fillna(0) > 0].copy()
+    if on_pitch.empty:
+        return pd.DataFrame()
+    on_pitch["cards"] = on_pitch["yellow_cards"].astype(float) + on_pitch["red_cards"].astype(float)
+    grouped = on_pitch.groupby("jogador")
+    out = pd.DataFrame(
+        {
+            "jogos": grouped.size(),
+            "min": grouped["minutes"].sum(),
+            "gols": grouped["goals"].sum(min_count=1),
+            "marcou_em": grouped["goals"].apply(lambda g: int((g.fillna(0) > 0).sum())),
+            "assist": grouped["assists"].sum(min_count=1),
+            "chutes": grouped["shots"].sum(min_count=1),
+            "no_gol": grouped["shots_on_target"].sum(min_count=1),
+            "cartoes": grouped["cards"].sum(min_count=1),
+            "faltas": grouped["fouls_committed"].sum(min_count=1),
+        }
+    ).reset_index()
+    out["marcou em"] = out["marcou_em"].astype(str) + "/" + out["jogos"].astype(str)
+    out = out.drop(columns=["marcou_em"])
+    return out.sort_values(
+        ["gols", "chutes", "min"], ascending=[False, False, False], na_position="last"
+    ).reset_index(drop=True)
+
+
+def team_stats_last(engine: Engine, team: str, n: int) -> pd.DataFrame:
+    """Últimos n jogos do time com stats próprias e do adversário (self-join)."""
+    sql = """
+        SELECT m.match_date, o.name AS opponent, s.is_home,
+               s.goals AS gf, so.goals AS ga,
+               s.shots, s.shots_on_target, s.corners, s.fouls,
+               s.yellow_cards + COALESCE(s.red_cards, 0) AS cards,
+               so.shots AS shots_opp, so.shots_on_target AS shots_on_target_opp,
+               so.corners AS corners_opp, so.fouls AS fouls_opp,
+               so.yellow_cards + COALESCE(so.red_cards, 0) AS cards_opp
+        FROM team_match_stats s
+        JOIN matches m ON m.id = s.match_id
+        JOIN teams t ON t.id = s.team_id
+        JOIN team_match_stats so ON so.match_id = s.match_id AND so.team_id != s.team_id
+        JOIN teams o ON o.id = so.team_id
+        WHERE t.name = :t AND m.home_goals IS NOT NULL
+        ORDER BY m.match_date DESC LIMIT :n
+    """
+    df = read_df(engine, sql, {"t": team, "n": n})
+    if not df.empty:
+        df["match_date"] = pd.to_datetime(df["match_date"])
+    return df
+
+
+def team_players_last(engine: Engine, team: str, n: int) -> pd.DataFrame:
+    """Linhas jogador-jogo dos últimos n jogos do time (FBref; senão Understat)."""
+    sql = """
+        SELECT pl.name AS jogador, m.match_date, p.source, p.minutes, p.goals,
+               p.assists, p.shots, p.shots_on_target, p.yellow_cards,
+               p.red_cards, p.fouls_committed
+        FROM player_match_stats p
+        JOIN matches m ON m.id = p.match_id
+        JOIN players pl ON pl.id = p.player_id
+        JOIN teams t ON t.id = p.team_id
+        WHERE t.name = :t AND p.source = :src AND m.id IN (
+            SELECT m2.id FROM matches m2
+            JOIN teams th ON th.id = m2.home_team_id
+            JOIN teams ta ON ta.id = m2.away_team_id
+            WHERE (th.name = :t OR ta.name = :t) AND m2.home_goals IS NOT NULL
+            ORDER BY m2.match_date DESC LIMIT :n
+        )
+    """
+    for source in ("fbref", "understat"):
+        df = read_df(engine, sql, {"t": team, "n": n, "src": source})
+        if not df.empty:
+            return df
+    return pd.DataFrame()
+
+
 def matches_snapshot(engine: Engine) -> pd.DataFrame:
-    """Todos os jogos disputados, compactos (5 colunas + competição)."""
+    """Todos os jogos disputados, compactos (placar + competição + id)."""
     return read_df(
         engine,
         """
-        SELECT m.match_date, th.name AS home_team, ta.name AS away_team,
-               m.home_goals, m.away_goals, m.competition_id
+        SELECT m.id AS match_id, m.match_date, th.name AS home_team,
+               ta.name AS away_team, m.home_goals, m.away_goals, m.competition_id
         FROM matches m
         JOIN teams th ON th.id = m.home_team_id
         JOIN teams ta ON ta.id = m.away_team_id
@@ -221,18 +419,108 @@ def matches_snapshot(engine: Engine) -> pd.DataFrame:
     )
 
 
-def export_matches_snapshot(engine: Engine) -> int:
-    """Grava data/reports/matches_streaks.parquet para o dashboard publicado.
+# Janela dos snapshots por time: precisa cobrir o maior N selecionável na UI.
+SNAPSHOT_WINDOW = 30
+
+
+def export_streak_snapshots(engine: Engine) -> dict[str, int]:
+    """Grava em data/reports os artefatos que a aba de sequências do site lê.
 
     O Streamlit Cloud não tem o banco (gitignored, e o FBref bloqueia IPs de
-    datacenter) — a aba de sequências de lá lê este artefato. Retorna o número
-    de jogos exportados.
+    datacenter), então o `daily` exporta: todos os placares
+    (matches_streaks.parquet) e, para os últimos SNAPSHOT_WINDOW jogos de cada
+    time, as stats de time (team_stats_streaks.parquet) e as linhas
+    jogador-jogo (player_stats_streaks.parquet).
     """
     from edgefinder.config import settings
 
-    df = matches_snapshot(engine)
-    if df.empty:
-        return 0
     settings.reports_dir.mkdir(parents=True, exist_ok=True)
-    df.to_parquet(settings.reports_dir / "matches_streaks.parquet")
-    return len(df)
+    out: dict[str, int] = {}
+
+    matches = matches_snapshot(engine)
+    if matches.empty:
+        return {"matches": 0, "team_stats": 0, "players": 0}
+    matches.to_parquet(settings.reports_dir / "matches_streaks.parquet")
+    out["matches"] = len(matches)
+
+    # pares (team, match_id) dos últimos SNAPSHOT_WINDOW jogos de cada time
+    long = pd.concat(
+        [
+            matches[["match_id", "match_date", "home_team"]].rename(columns={"home_team": "team"}),
+            matches[["match_id", "match_date", "away_team"]].rename(columns={"away_team": "team"}),
+        ]
+    ).sort_values("match_date", ascending=False)
+    long["rank"] = long.groupby("team").cumcount()
+    kept = long[long["rank"] < SNAPSHOT_WINDOW][["team", "match_id"]]
+
+    team_stats = read_df(
+        engine,
+        """
+        SELECT s.match_id, m.match_date, t.name AS team, o.name AS opponent, s.is_home,
+               s.goals AS gf, so.goals AS ga,
+               s.shots, s.shots_on_target, s.corners, s.fouls,
+               s.yellow_cards + COALESCE(s.red_cards, 0) AS cards,
+               so.shots AS shots_opp, so.shots_on_target AS shots_on_target_opp,
+               so.corners AS corners_opp, so.fouls AS fouls_opp,
+               so.yellow_cards + COALESCE(so.red_cards, 0) AS cards_opp
+        FROM team_match_stats s
+        JOIN matches m ON m.id = s.match_id
+        JOIN teams t ON t.id = s.team_id
+        JOIN team_match_stats so ON so.match_id = s.match_id AND so.team_id != s.team_id
+        JOIN teams o ON o.id = so.team_id
+        WHERE m.home_goals IS NOT NULL
+        """,
+    )
+    team_stats = team_stats.merge(kept, on=["team", "match_id"])
+    team_stats.to_parquet(settings.reports_dir / "team_stats_streaks.parquet")
+    out["team_stats"] = len(team_stats)
+
+    players = read_df(
+        engine,
+        """
+        SELECT p.match_id, m.match_date, t.name AS team, pl.name AS jogador,
+               p.source, p.minutes, p.goals, p.assists, p.shots,
+               p.shots_on_target, p.yellow_cards, p.red_cards, p.fouls_committed
+        FROM player_match_stats p
+        JOIN matches m ON m.id = p.match_id
+        JOIN players pl ON pl.id = p.player_id
+        JOIN teams t ON t.id = p.team_id
+        WHERE m.home_goals IS NOT NULL
+        """,
+    )
+    players = players.merge(kept, on=["team", "match_id"])
+    players.to_parquet(settings.reports_dir / "player_stats_streaks.parquet")
+    out["players"] = len(players)
+    return out
+
+
+def stats_view_from_frame(team_stats: pd.DataFrame, team: str, n: int) -> pd.DataFrame:
+    """Visão de stats do time a partir do snapshot parquet (site publicado)."""
+    if team_stats.empty:
+        return pd.DataFrame()
+    view = team_stats[team_stats["team"] == team].copy()
+    view["match_date"] = pd.to_datetime(view["match_date"])
+    return view.sort_values("match_date", ascending=False).head(n).reset_index(drop=True)
+
+
+def players_view_from_frame(players: pd.DataFrame, team: str, n: int) -> pd.DataFrame:
+    """Linhas jogador-jogo dos últimos n jogos do time a partir do snapshot.
+
+    Prefere FBref (tem cartões e faltas); cai para Understat quando é a única
+    fonte do time.
+    """
+    if players.empty:
+        return pd.DataFrame()
+    mine = players[players["team"] == team].copy()
+    if mine.empty:
+        return mine
+    source = "fbref" if (mine["source"] == "fbref").any() else "understat"
+    mine = mine[mine["source"] == source]
+    mine["match_date"] = pd.to_datetime(mine["match_date"])
+    last_ids = (
+        mine[["match_id", "match_date"]]
+        .drop_duplicates("match_id")
+        .sort_values("match_date", ascending=False)
+        .head(n)["match_id"]
+    )
+    return mine[mine["match_id"].isin(last_ids)].reset_index(drop=True)

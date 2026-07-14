@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -9,7 +10,11 @@ from edgefinder.edge.streaks import (
     combined_streaks,
     hits_over_line,
     market_streak_text,
+    player_summary,
+    players_view_from_frame,
     streak_table,
+    team_stats_averages,
+    team_stats_streaks,
     team_streaks,
     team_view,
 )
@@ -103,6 +108,115 @@ class TestAdHoc:
         assert s.hits == 1  # so o 3x2 tem 5 gols
         assert s.total == 5
         assert "4.5" in s.label
+
+
+def _stats_view() -> pd.DataFrame:
+    """Quatro jogos com stats; escanteios ausentes no jogo mais antigo (NaN)."""
+    return pd.DataFrame(
+        {
+            "match_date": pd.to_datetime(["2026-02-05", "2026-01-29", "2026-01-22", "2026-01-15"]),
+            "gf": [2, 0, 1, 3],
+            "ga": [0, 1, 1, 2],
+            "shots": [15, 8, 11, 18],
+            "shots_on_target": [7, 2, 4, 9],
+            "corners": [6.0, 3.0, 5.0, np.nan],
+            "fouls": [10.0, 14.0, 12.0, 11.0],
+            "cards": [1.0, 3.0, 2.0, 1.0],
+            "shots_opp": [7, 13, 10, 9],
+            "shots_on_target_opp": [2, 6, 3, 4],
+            "corners_opp": [4.0, 6.0, 4.0, np.nan],
+            "fouls_opp": [13.0, 9.0, 15.0, 12.0],
+            "cards_opp": [2.0, 2.0, 3.0, 1.0],
+        }
+    )
+
+
+class TestTeamStatsStreaks:
+    def test_denominador_conta_so_jogos_com_dado(self) -> None:
+        lines = {s.key: s for s in team_stats_streaks(_stats_view(), 4)}
+        # escanteios: só 3 jogos têm dado; totais 10, 9, 9 -> over 8.5 em 3/3
+        assert lines["corners_over_8.5"].hits == 3
+        assert lines["corners_over_8.5"].total == 3
+        assert lines["corners_over_9.5"].hits == 1  # só o 6+4
+        # cartões existem nos 4 jogos: totais 3, 5, 5, 2 -> over 3.5 em 2/4
+        assert lines["cards_over_3.5"].hits == 2
+        assert lines["cards_over_3.5"].total == 4
+        # chutes no gol do time: 7, 2, 4, 9 -> over 4.5 em 2/4
+        assert lines["team_sot_over_4.5"].hits == 2
+
+    def test_condicao_sem_dado_algum_fica_de_fora(self) -> None:
+        view = _stats_view().assign(corners=np.nan, corners_opp=np.nan)
+        keys = {s.key for s in team_stats_streaks(view, 4)}
+        assert "corners_over_8.5" not in keys
+        assert "cards_over_3.5" in keys
+
+    def test_view_vazia_devolve_lista_vazia(self) -> None:
+        assert team_stats_streaks(pd.DataFrame(), 5) == []
+
+
+class TestTeamStatsAverages:
+    def test_medias_feitas_e_sofridas(self) -> None:
+        df = team_stats_averages(_stats_view(), 4)
+        chutes = df[df["stat"] == "chutes"].iloc[0]
+        assert chutes["media"] == pytest.approx((15 + 8 + 11 + 18) / 4)
+        assert chutes["media sofrida"] == pytest.approx((7 + 13 + 10 + 9) / 4)
+        escanteios = df[df["stat"] == "escanteios"].iloc[0]
+        assert escanteios["jogos"] == 3  # NaN no mais antigo
+
+
+def _players() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "match_id": [1, 1, 2, 2, 2],
+            "jogador": ["ana", "bia", "ana", "bia", "clara"],
+            "minutes": [90, 90, 88, 0, 45],
+            "goals": [1, 0, 2, 0, 0],
+            "assists": [0, 1, 0, 0, 0],
+            "shots": [3, 1, 5, 0, 1],
+            "shots_on_target": [2, 0, 3, 0, 0],
+            "yellow_cards": [0, 1, 1, 0, 0],
+            "red_cards": [0, 0, 0, 0, 0],
+            "fouls_committed": [2, 3, 1, 0, 0],
+        }
+    )
+
+
+class TestPlayerSummary:
+    def test_agrega_por_jogador_e_ordena_por_gols(self) -> None:
+        out = player_summary(_players())
+        assert out.iloc[0]["jogador"] == "ana"  # 3 gols
+        ana = out.iloc[0]
+        assert ana["jogos"] == 2
+        assert ana["gols"] == 3
+        assert ana["marcou em"] == "2/2"
+        assert ana["chutes"] == 8
+        assert ana["cartoes"] == 1
+
+    def test_quem_nao_entrou_em_campo_fica_de_fora(self) -> None:
+        out = player_summary(_players())
+        bia = out[out["jogador"] == "bia"].iloc[0]
+        assert bia["jogos"] == 1  # o jogo com 0 minutos nao conta
+        assert bia["marcou em"] == "0/1"
+
+    def test_vazio_devolve_vazio(self) -> None:
+        assert player_summary(pd.DataFrame()).empty
+
+
+class TestPlayersViewFromFrame:
+    def test_prefere_fbref_e_limita_aos_ultimos_n_jogos(self) -> None:
+        base = _players().assign(
+            team="alfa",
+            source="fbref",
+            match_date=pd.to_datetime(["2026-01-01"] * 2 + ["2026-01-08"] * 3),
+        )
+        understat = base.assign(source="understat")
+        frame = pd.concat([base, understat])
+        view = players_view_from_frame(frame, "alfa", 1)
+        assert (view["source"] == "fbref").all()
+        assert set(view["match_id"]) == {2}  # so o jogo mais recente
+
+    def test_time_ausente_devolve_vazio(self) -> None:
+        assert players_view_from_frame(_players().assign(team="alfa", source="fbref"), "x", 5).empty
 
 
 class TestMarketStreakText:

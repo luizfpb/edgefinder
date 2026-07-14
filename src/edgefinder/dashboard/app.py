@@ -117,6 +117,64 @@ def _load_matches_for_streaks() -> pd.DataFrame | None:
     return None
 
 
+def _team_stats_and_players(team: str, n: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Visao de stats do time e linhas de jogador: banco local ou snapshots."""
+    try:
+        from edgefinder.edge.streaks import team_players_last, team_stats_last
+        from edgefinder.storage.repository import get_engine
+
+        _eng = get_engine()
+        stats = team_stats_last(_eng, team, n)
+        players = team_players_last(_eng, team, n)
+        if not stats.empty or not players.empty:
+            return stats, players
+    except Exception:
+        pass
+    from edgefinder.edge.streaks import players_view_from_frame, stats_view_from_frame
+
+    stats_snap = settings.reports_dir / "team_stats_streaks.parquet"
+    players_snap = settings.reports_dir / "player_stats_streaks.parquet"
+    stats = (
+        stats_view_from_frame(pd.read_parquet(stats_snap), team, n)
+        if stats_snap.exists()
+        else pd.DataFrame()
+    )
+    players = (
+        players_view_from_frame(pd.read_parquet(players_snap), team, n)
+        if players_snap.exists()
+        else pd.DataFrame()
+    )
+    return stats, players
+
+
+def _render_team_stats_sections(team: str, n: int) -> None:
+    from edgefinder.edge.streaks import player_summary, team_stats_averages, team_stats_streaks
+
+    stats_view, players_raw = _team_stats_and_players(team, n)
+    stat_lines = team_stats_streaks(stats_view, n)
+    medias = team_stats_averages(stats_view, n)
+    resumo = player_summary(players_raw)
+    if stat_lines:
+        st.markdown(f"**{team} — escanteios, cartoes e chutes (ultimos {n} com dado)**")
+        st.dataframe(
+            pd.DataFrame(
+                [{"condicao": s.label, "contagem": f"{s.hits} de {s.total}"} for s in stat_lines]
+            ),
+            use_container_width=True,
+        )
+    if not medias.empty:
+        st.markdown(f"**{team} — medias por jogo (ultimos {n} com dado)**")
+        st.dataframe(medias, use_container_width=True)
+    if not resumo.empty:
+        st.markdown(f"**{team} — jogadores (ultimos {n} jogos do time)**")
+        st.dataframe(resumo, use_container_width=True)
+    if not stat_lines and medias.empty and resumo.empty:
+        st.caption(
+            f"{team}: sem stats detalhadas disponiveis (escanteios/cartoes cobrem as ligas "
+            "europeias; stats de jogador dependem do cache FBref/Understat)."
+        )
+
+
 with tab_seq:
     st.caption(
         "Em quantos dos ultimos N jogos aconteceu cada coisa. Sequencia e contexto "
@@ -151,6 +209,11 @@ with tab_seq:
                 ),
                 use_container_width=True,
             )
+            col_a, col_b = st.columns(2)
+            with col_a:
+                _render_team_stats_sections(team_a, n_sel)
+            with col_b:
+                _render_team_stats_sections(team_b, n_sel)
         elif team_a:
             view_a = team_view(matches_seq, team_a)
             st.dataframe(
@@ -162,6 +225,7 @@ with tab_seq:
                 ),
                 use_container_width=True,
             )
+            _render_team_stats_sections(team_a, n_sel)
             st.caption("Jogos considerados (mais recente primeiro):")
             st.dataframe(view_a.head(n_sel), use_container_width=True)
 

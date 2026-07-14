@@ -11,6 +11,7 @@ import typer
 
 if TYPE_CHECKING:
     import pandas as pd
+    from sqlalchemy import Engine
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -285,9 +286,11 @@ def sequencias(
 ) -> None:
     """Tabela de sequencias: em quantos dos ultimos N jogos aconteceu cada coisa.
 
-    Com dois times, mostra casa, fora e o combinado ("N de 2N"). Sequencia e
-    contexto descritivo, NAO probabilidade: amostra de 5 jogos e minuscula e o
-    mercado ja precifica tendencia obvia.
+    Com dois times, mostra casa, fora e o combinado ("N de 2N"). Alem dos
+    gols: escanteios, cartoes e chutes no gol (onde a fonte tem o dado) e a
+    tabela por jogador (quem marcou em quantos dos ultimos N, chutes, cartoes,
+    faltas). Sequencia e contexto descritivo, NAO probabilidade: amostra de 5
+    jogos e minuscula e o mercado ja precifica tendencia obvia.
     """
     from edgefinder.edge.streaks import last_matches, match_streak_table, team_streaks
     from edgefinder.storage.repository import get_engine
@@ -304,6 +307,8 @@ def sequencias(
         for _, r in df.iterrows():
             table.add_row(*(str(v) for v in r))
         console.print(table)
+        for team_name in (time, adversario):
+            _print_team_stats_sections(engine, team_name, n)
     else:
         view = last_matches(engine, time, n, competition=comp)
         if view.empty:
@@ -326,9 +331,55 @@ def sequencias(
                 f"{int(r['gf'])}x{int(r['ga'])}",
             )
         console.print(jogos)
+        _print_team_stats_sections(engine, time, n)
     console.print(
         "[dim]Sequencia nao e probabilidade: use como contexto, nunca como prova de valor.[/dim]"
     )
+
+
+def _print_team_stats_sections(engine: "Engine", team: str, n: int) -> None:
+    """Seções de escanteios/cartões/médias e de jogadores dos últimos n jogos."""
+    import pandas as pd
+
+    from edgefinder.edge.streaks import (
+        player_summary,
+        team_players_last,
+        team_stats_averages,
+        team_stats_last,
+        team_stats_streaks,
+    )
+
+    stats_view = team_stats_last(engine, team, n)
+    stat_lines = team_stats_streaks(stats_view, n)
+    if stat_lines:
+        table = Table(title=f"{team} - escanteios/cartoes/chutes (ultimos {n} com dado)")
+        table.add_column("condicao")
+        table.add_column("contagem")
+        for s in stat_lines:
+            table.add_row(s.label, f"{s.hits} de {s.total}")
+        console.print(table)
+    medias = team_stats_averages(stats_view, n)
+    if not medias.empty:
+        table = Table(title=f"{team} - medias por jogo (ultimos {n} com dado)")
+        for col in medias.columns:
+            table.add_column(str(col))
+        for _, r in medias.iterrows():
+            table.add_row(
+                *("-" if pd.isna(v) else f"{v:g}" if isinstance(v, float) else str(v) for v in r)
+            )
+        console.print(table)
+    resumo = player_summary(team_players_last(engine, team, n))
+    if resumo.empty:
+        console.print(f"[dim]{team}: sem stats de jogador no banco para estes jogos.[/dim]")
+        return
+    table = Table(title=f"{team} - jogadores (ultimos {n} jogos do time)")
+    for col in resumo.columns:
+        table.add_column(str(col))
+    for _, r in resumo.head(18).iterrows():
+        table.add_row(
+            *("-" if pd.isna(v) else f"{v:g}" if isinstance(v, float) else str(v) for v in r)
+        )
+    console.print(table)
 
 
 bet_app = typer.Typer(help="Registro e liquidacao de apostas (paper por default).")
@@ -483,10 +534,14 @@ def daily(
     recorded = record_defensible_paper_bets(engine, df)
     console.print(f"5/6 paper bets: {recorded} novas registradas (defensaveis)")
 
-    from edgefinder.edge.streaks import export_matches_snapshot
+    from edgefinder.edge.streaks import export_streak_snapshots
 
-    exported = export_matches_snapshot(engine)
-    console.print(f"snapshot de jogos p/ dashboard publicado: {exported} partidas")
+    exported = export_streak_snapshots(engine)
+    console.print(
+        f"snapshots p/ dashboard publicado: {exported.get('matches', 0)} jogos, "
+        f"{exported.get('team_stats', 0)} linhas de stats de time, "
+        f"{exported.get('players', 0)} linhas de jogador"
+    )
 
     if not df.empty:
         _print_analysis_table(df.head(top))
