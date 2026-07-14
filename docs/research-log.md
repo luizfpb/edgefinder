@@ -100,6 +100,12 @@ se testamos 20 variantes e reportamos só a melhor, o "ganho" é ruído.
     feature (prever o fechamento, não o resultado), xG do Understat como
     entrada do DC (Europa), e mercados menos eficientes (props/escanteios)
     quando o histórico próprio de odds acumular.
+- Adendo (2026-07-14, tarde): re-rodado com a meia-vida no ótimo do H1 (365d
+  — o run original usara 180d, incoerência corrigida) e com o benchmark do
+  H5 (market_avg a partir de 23/07/2025). Resultado: 8.706 apostas, yield
+  **−4,36%** [IC95: −7,5%, −1,2%], p=0,997; log-loss pior que o mercado nas
+  9 de 9 ligas (EPL 0.6151 vs 0.5967). A conclusão não muda — a meia-vida
+  melhor não fecha o gap — e a trava segue acionada.
 
 ## 2026-07-13 — H5: Pinnacle closing pós-07/2025 é benchmark confiável?
 

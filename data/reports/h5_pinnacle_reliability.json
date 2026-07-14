@@ -1,0 +1,52 @@
+{
+  "cutoff": "2025-07-23",
+  "n_paired_matches": 20533,
+  "pre": {
+    "n_matches": 17617,
+    "pinnacle": {
+      "n": 17614,
+      "overround_mean": 0.02896,
+      "overround_std": 0.00526,
+      "logloss_shin": 0.971934
+    },
+    "market_avg": {
+      "n": 17617,
+      "overround_mean": 0.04884,
+      "overround_std": 0.00628,
+      "logloss_shin": 0.972147
+    },
+    "market_max": {
+      "n": 17617,
+      "overround_mean": -0.00426,
+      "overround_std": 0.01485,
+      "logloss_shin": 0.971983
+    }
+  },
+  "pos": {
+    "n_matches": 2916,
+    "pinnacle": {
+      "n": 1464,
+      "overround_mean": 0.03251,
+      "overround_std": 0.00561,
+      "logloss_shin": 0.968943
+    },
+    "market_avg": {
+      "n": 2916,
+      "overround_mean": 0.06422,
+      "overround_std": 0.00732,
+      "logloss_shin": 0.981157
+    },
+    "market_max": {
+      "n": 2916,
+      "overround_mean": 0.02356,
+      "overround_std": 0.01692,
+      "logloss_shin": 0.980991
+    }
+  },
+  "divergencia_media_pre": 0.004536,
+  "logloss_pareado_pre_pinnacle": 0.971934,
+  "logloss_pareado_pre_market_avg": 0.972209,
+  "divergencia_media_pos": 0.007234,
+  "logloss_pareado_pos_pinnacle": 0.968943,
+  "logloss_pareado_pos_market_avg": 0.968778
+}

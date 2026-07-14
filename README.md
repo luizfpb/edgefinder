@@ -14,9 +14,11 @@ sistema diz isso e não sugere apostas.
 ## Estado atual (backtest de 14/07/2026)
 
 **O MODELO NÃO BATE O MERCADO.** Walk-forward estrito em 9 ligas (25.194
-previsões, 2019-20 a 2025-26, 1X2 contra closing line de-vigada por Shin):
-log-loss do modelo pior que o do mercado nas 9 de 9 ligas; simulação de
-apostas com 8.886 entradas deu yield de **-3,85%** [IC95: -7,0%, -0,8%].
+previsões, 2019-20 a 2025-26, 1X2 contra closing line de-vigada por Shin,
+meia-vida 365d — o ótimo do H1 — e benchmark market_avg no período em que a
+Pinnacle ficou não confiável, H5): log-loss do modelo pior que o do mercado
+nas 9 de 9 ligas; simulação de apostas com 8.706 entradas deu yield de
+**-4,36%** [IC95: -7,5%, -1,2%].
 Por isso a trava `backtest_gate()` **bloqueia sugestões de aposta** — o
 sistema, hoje, é um instrumento de medição honesto, não uma máquina de
 apostar. Detalhes, hipóteses testadas e próximos passos:

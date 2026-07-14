@@ -1,0 +1,189 @@
+{
+  "n_total": 109273,
+  "pinnacle": {
+    "n": 36306,
+    "proportional": {
+      "logloss": 0.971731,
+      "brier_home": 0.212041
+    },
+    "additive": {
+      "logloss": 0.971415,
+      "brier_home": 0.211961
+    },
+    "shin": {
+      "logloss": 0.971467,
+      "brier_home": 0.211974
+    },
+    "by_league": {
+      "BRA-Serie A": {
+        "proportional": 0.997792,
+        "additive": 0.997479,
+        "shin": 0.997538
+      },
+      "ENG-Championship": {
+        "proportional": 1.03239,
+        "additive": 1.032297,
+        "shin": 1.032311
+      },
+      "ENG-Premier League": {
+        "proportional": 0.952389,
+        "additive": 0.952307,
+        "shin": 0.952294
+      },
+      "ESP-La Liga": {
+        "proportional": 0.95958,
+        "additive": 0.959391,
+        "shin": 0.959402
+      },
+      "FRA-Ligue 1": {
+        "proportional": 0.983753,
+        "additive": 0.983491,
+        "shin": 0.983539
+      },
+      "GER-Bundesliga": {
+        "proportional": 0.977645,
+        "additive": 0.977999,
+        "shin": 0.977876
+      },
+      "ITA-Serie A": {
+        "proportional": 0.945923,
+        "additive": 0.945317,
+        "shin": 0.945447
+      },
+      "NED-Eredivisie": {
+        "proportional": 0.925264,
+        "additive": 0.924622,
+        "shin": 0.924745
+      },
+      "POR-Liga Portugal": {
+        "proportional": 0.916366,
+        "additive": 0.915141,
+        "shin": 0.91539
+      }
+    }
+  },
+  "market_avg": {
+    "n": 26029,
+    "proportional": {
+      "logloss": 0.979085,
+      "brier_home": 0.213112
+    },
+    "additive": {
+      "logloss": 0.978457,
+      "brier_home": 0.212941
+    },
+    "shin": {
+      "logloss": 0.978545,
+      "brier_home": 0.212962
+    },
+    "by_league": {
+      "BRA-Serie A": {
+        "proportional": 0.998456,
+        "additive": 0.997507,
+        "shin": 0.997667
+      },
+      "ENG-Championship": {
+        "proportional": 1.037059,
+        "additive": 1.037122,
+        "shin": 1.037073
+      },
+      "ENG-Premier League": {
+        "proportional": 0.963878,
+        "additive": 0.964041,
+        "shin": 0.963931
+      },
+      "ESP-La Liga": {
+        "proportional": 0.969677,
+        "additive": 0.968686,
+        "shin": 0.968866
+      },
+      "FRA-Ligue 1": {
+        "proportional": 0.985029,
+        "additive": 0.984766,
+        "shin": 0.984771
+      },
+      "GER-Bundesliga": {
+        "proportional": 0.974026,
+        "additive": 0.974387,
+        "shin": 0.974197
+      },
+      "ITA-Serie A": {
+        "proportional": 0.962456,
+        "additive": 0.961586,
+        "shin": 0.961748
+      },
+      "NED-Eredivisie": {
+        "proportional": 0.929627,
+        "additive": 0.928926,
+        "shin": 0.929004
+      },
+      "POR-Liga Portugal": {
+        "proportional": 0.922343,
+        "additive": 0.919738,
+        "shin": 0.920308
+      }
+    }
+  },
+  "market_max": {
+    "n": 26028,
+    "proportional": {
+      "logloss": 0.978527,
+      "brier_home": 0.21298
+    },
+    "additive": {
+      "logloss": 0.978488,
+      "brier_home": 0.212973
+    },
+    "shin": {
+      "logloss": 0.978465,
+      "brier_home": 0.212967
+    },
+    "by_league": {
+      "BRA-Serie A": {
+        "proportional": 0.998001,
+        "additive": 0.997999,
+        "shin": 0.997906
+      },
+      "ENG-Championship": {
+        "proportional": 1.0374,
+        "additive": 1.03748,
+        "shin": 1.037445
+      },
+      "ENG-Premier League": {
+        "proportional": 0.963493,
+        "additive": 0.963741,
+        "shin": 0.963543
+      },
+      "ESP-La Liga": {
+        "proportional": 0.968706,
+        "additive": 0.968238,
+        "shin": 0.968487
+      },
+      "FRA-Ligue 1": {
+        "proportional": 0.98496,
+        "additive": 0.984849,
+        "shin": 0.984934
+      },
+      "GER-Bundesliga": {
+        "proportional": 0.973864,
+        "additive": 0.973875,
+        "shin": 0.973845
+      },
+      "ITA-Serie A": {
+        "proportional": 0.962034,
+        "additive": 0.961973,
+        "shin": 0.961914
+      },
+      "NED-Eredivisie": {
+        "proportional": 0.928798,
+        "additive": 0.928725,
+        "shin": 0.928903
+      },
+      "POR-Liga Portugal": {
+        "proportional": 0.919369,
+        "additive": 0.919281,
+        "shin": 0.919088
+      }
+    }
+  }
+}
