@@ -66,6 +66,10 @@ ignore = [
     "E501",  # linhas longas: o format cuida; docstrings com formulas podem passar
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# O bootstrap de sys.path para o Streamlit Cloud precisa preceder os imports.
+"src/edgefinder/dashboard/app.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

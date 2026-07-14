@@ -98,6 +98,28 @@ a reboot sem processo Python residente, tem retry e log nativos — Prefect é u
 orquestrador de frota (overkill para 1 máquina) e APScheduler morre junto com
 o processo num desktop que dorme. Detalhes: PLAN.md, seção 4.5.
 
+## Publicar o painel na internet (grátis)
+
+A opção gratuita que roda Streamlit é o **Streamlit Community Cloud**
+(deploy direto de um repositório GitHub). Cloudflare Pages e GitHub Pages
+**não servem**: hospedam só conteúdo estático/JS, e o dashboard é um servidor
+Python. E o "cérebro" (scraping + backtest) **não pode ir para nuvem nenhuma**:
+o FBref bloqueia IPs de datacenter (verificado na Fase 0) — a arquitetura é
+o PC local produzir os artefatos e o site publicá-los.
+
+Passos (uma vez):
+
+1. Crie um repositório no GitHub e envie o projeto (`data/reports` já é
+   versionado de propósito — é o que o site lê).
+2. Entre em <https://share.streamlit.io> com a conta do GitHub.
+3. "Create app" → escolha o repositório e branch `main` → Main file path:
+   `src/edgefinder/dashboard/app.py` → Deploy.
+4. Para atualizar o site: rode `scripts\publish.cmd` (coleta odds, refaz a
+   análise e faz commit+push de `data/reports`) — ou agende no Task Scheduler.
+
+Atenção: o repositório precisa ser público no plano gratuito (ou conceda
+acesso ao app), e o site mostra tudo que estiver em `data/reports`.
+
 ## Estrutura de scripts
 
 | Script | Papel | Duração típica |

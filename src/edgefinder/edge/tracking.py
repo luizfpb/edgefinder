@@ -53,6 +53,73 @@ def record_paper_bet(
     )
 
 
+def link_snapshots_to_matches(engine: Engine) -> int:
+    """Vincula snapshots de odds (match_id nulo) aos jogos do banco.
+
+    Casamento por nome canônico dos dois times + data do jogo dentro de ±1 dia
+    do commence_time (fusos divergem entre fontes). Roda após cada coleta —
+    sem esse vínculo o CLV não tem como casar aposta com fechamento.
+    """
+    from edgefinder.data.teamnames import normalize_team_name
+
+    with engine.begin() as conn:
+        pending = conn.execute(
+            select(
+                schema.odds_snapshots.c.id,
+                schema.odds_snapshots.c.home_team_raw,
+                schema.odds_snapshots.c.away_team_raw,
+                schema.odds_snapshots.c.commence_time,
+            ).where(
+                schema.odds_snapshots.c.match_id.is_(None),
+                schema.odds_snapshots.c.commence_time.is_not(None),
+            )
+        ).fetchall()
+        if not pending:
+            return 0
+        match_rows = conn.execute(
+            select(
+                schema.matches.c.id,
+                schema.matches.c.match_date,
+                schema.teams.c.name.label("home_name"),
+            ).select_from(
+                schema.matches.join(
+                    schema.teams, schema.matches.c.home_team_id == schema.teams.c.id
+                )
+            )
+        ).fetchall()
+        away_rows = conn.execute(
+            select(schema.matches.c.id, schema.teams.c.name).select_from(
+                schema.matches.join(
+                    schema.teams, schema.matches.c.away_team_id == schema.teams.c.id
+                )
+            )
+        ).fetchall()
+        away_by_id = {int(mid): str(name) for mid, name in away_rows}
+        index: dict[tuple[str, str], list[tuple[int, datetime]]] = {}
+        for mid, mdate, home_name in match_rows:
+            key = (str(home_name), away_by_id.get(int(mid), ""))
+            index.setdefault(key, []).append((int(mid), mdate))
+
+        linked = 0
+        for snap_id, home_raw, away_raw, commence in pending:
+            key = (normalize_team_name(str(home_raw)), normalize_team_name(str(away_raw)))
+            candidates = [
+                mid
+                for mid, mdate in index.get(key, [])
+                if abs((mdate - commence).total_seconds()) <= 86_400
+            ]
+            if len(candidates) == 1:
+                conn.execute(
+                    update(schema.odds_snapshots)
+                    .where(schema.odds_snapshots.c.id == snap_id)
+                    .values(match_id=candidates[0])
+                )
+                linked += 1
+    if linked:
+        log.info("clv.snapshots_vinculados", snapshots=linked)
+    return linked
+
+
 def update_clv(engine: Engine) -> int:
     """Preenche closing_odds/clv das apostas cujo jogo já começou."""
     now = datetime.now()

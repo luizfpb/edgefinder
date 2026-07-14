@@ -431,6 +431,7 @@ def load_fbref_matches(engine: Engine, league: str, season: str) -> int:
         score_raw = row.get("score")
         score = "" if score_raw is None or pd.isna(score_raw) else str(score_raw)
         parsed_score = _SCORE_RE.search(score)
+        game_id_raw = row.get("game_id")
         match_rows.append(
             {
                 "competition_id": league,
@@ -441,30 +442,47 @@ def load_fbref_matches(engine: Engine, league: str, season: str) -> int:
                 "home_goals": int(parsed_score.group(1)) if parsed_score else None,
                 "away_goals": int(parsed_score.group(2)) if parsed_score else None,
                 "status": "played" if parsed_score else "scheduled",
-                "fbref_id": str(row["game_id"]),
+                # jogos futuros ainda não têm match report: game_id ausente
+                # precisa virar NULL (a string "nan" colide no UNIQUE)
+                "fbref_id": None
+                if game_id_raw is None or pd.isna(game_id_raw)
+                else str(game_id_raw),
             }
         )
 
-    if existing:
-        # jogos já existem (espinha do football-data.co.uk): só vincula o fbref_id
-        updated = 0
-        with engine.begin() as conn:
-            for mrow in match_rows:
-                mid = existing.get((int(mrow["home_team_id"]), int(mrow["away_team_id"])))
-                if mid is not None:
-                    conn.execute(
-                        update(schema.matches)
-                        .where(schema.matches.c.id == mid)
-                        .values(fbref_id=mrow["fbref_id"])
-                    )
-                    updated += 1
-        return updated
-    return upsert(
+    # Jogos já existentes (ex.: espinha do football-data.co.uk, ou inseridos à
+    # mão): atualiza fbref_id/placar sem duplicar — a data pode divergir entre
+    # fontes, então o par (mandante, visitante) é a chave dentro da temporada.
+    # Jogos que ainda não existem são inseridos.
+    updated = 0
+    to_insert: list[dict[str, Any]] = []
+    with engine.begin() as conn:
+        for mrow in match_rows:
+            mid = existing.get((int(mrow["home_team_id"]), int(mrow["away_team_id"])))
+            if mid is None:
+                to_insert.append(mrow)
+                continue
+            values: dict[str, Any] = {}
+            if mrow["fbref_id"] is not None:
+                values["fbref_id"] = mrow["fbref_id"]
+            if mrow["home_goals"] is not None:
+                values |= {
+                    "home_goals": mrow["home_goals"],
+                    "away_goals": mrow["away_goals"],
+                    "status": "played",
+                }
+            if values:
+                conn.execute(
+                    update(schema.matches).where(schema.matches.c.id == mid).values(**values)
+                )
+                updated += 1
+    inserted = upsert(
         engine,
         schema.matches,
-        match_rows,
+        to_insert,
         conflict_cols=["competition_id", "season", "match_date", "home_team_id", "away_team_id"],
     )
+    return updated + inserted
 
 
 def load_fbref_players(engine: Engine, league: str, season: str) -> int:

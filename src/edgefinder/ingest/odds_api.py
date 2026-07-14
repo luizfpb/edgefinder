@@ -164,7 +164,9 @@ def _rows_from_response(events: list[dict[str, Any]], competition: str) -> list[
                             "bookmaker": book_key,
                             "market": market_key,
                             "selection": selection,
-                            "line": outcome.get("point"),
+                            # 0.0 = mercado sem linha (1x2): NULL quebraria o
+                            # UNIQUE de dedup e o casamento de CLV com bets
+                            "line": float(outcome.get("point") or 0.0),
                             "odds_decimal": float(outcome["price"]),
                             "collected_at": collected_at,
                             "is_closing": False,

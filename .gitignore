@@ -19,7 +19,8 @@ data/raw/soccerdata/
 data/raw/warm_logs/
 data/edgefinder.db
 data/models/
-data/reports/
+# data/reports E versionado: sao os artefatos (JSON/parquet pequenos) que o
+# dashboard publicado na internet le. scripts/publish.cmd os atualiza.
 
 # artefatos de IDE/SO
 .vscode/

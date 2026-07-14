@@ -1,0 +1,219 @@
+{
+  "config": {
+    "competitions": [
+      "ENG-Premier League",
+      "ESP-La Liga",
+      "ITA-Serie A",
+      "GER-Bundesliga",
+      "FRA-Ligue 1",
+      "ENG-Championship",
+      "NED-Eredivisie",
+      "POR-Liga Portugal",
+      "BRA-Serie A"
+    ],
+    "half_life_days": 180.0,
+    "freq": "W",
+    "min_train": 760,
+    "start_season": "1920",
+    "kelly_cap": 0.05,
+    "devig_method": "shin",
+    "max_ev": 0.15,
+    "ran_at": "2026-07-14T06:10:22.948308"
+  },
+  "leagues": {
+    "ENG-Premier League": {
+      "n_predictions": 2654,
+      "model_logloss_home": 0.6166692949405702,
+      "market_logloss_home": 0.597048444187482,
+      "model_brier_home": 0.2124432400182393,
+      "market_brier_home": 0.20571432768838366,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 969.0,
+        "roi": -0.020480955595978883,
+        "yield_per_bet": -0.03365325077399381,
+        "hit_rate": 0.37874097007223945,
+        "sharpe": -0.021202974747565075,
+        "max_drawdown": 0.6440362893237586,
+        "total_pnl": -0.3214571385900761,
+        "avg_ev": 0.08515515214630767
+      }
+    },
+    "ESP-La Liga": {
+      "n_predictions": 2655,
+      "model_logloss_home": 0.6282958126621395,
+      "market_logloss_home": 0.6064828665972607,
+      "model_brier_home": 0.21778084975902473,
+      "market_brier_home": 0.2091043617313671,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 1033.0,
+        "roi": 0.02145281474992403,
+        "yield_per_bet": 0.007415295256534363,
+        "hit_rate": 0.3872216844143272,
+        "sharpe": 0.0045693780259560375,
+        "max_drawdown": 0.2908998428665268,
+        "total_pnl": 0.3385882915686565,
+        "avg_ev": 0.08653760082398382
+      }
+    },
+    "ITA-Serie A": {
+      "n_predictions": 2650,
+      "model_logloss_home": 0.6019282383644871,
+      "market_logloss_home": 0.5830220709089478,
+      "model_brier_home": 0.2071465035140565,
+      "market_brier_home": 0.1996690921128694,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 1018.0,
+        "roi": -0.018014954610962523,
+        "yield_per_bet": -0.037603143418467586,
+        "hit_rate": 0.36836935166994106,
+        "sharpe": -0.025031721232816644,
+        "max_drawdown": 0.5605481436057917,
+        "total_pnl": -0.2704988777609453,
+        "avg_ev": 0.0853504095377562
+      }
+    },
+    "GER-Bundesliga": {
+      "n_predictions": 2134,
+      "model_logloss_home": 0.6381921608238443,
+      "market_logloss_home": 0.6089445786141998,
+      "model_brier_home": 0.2205252705555946,
+      "market_brier_home": 0.210198667495301,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 885.0,
+        "roi": -0.05643790112064469,
+        "yield_per_bet": -0.03473446327683615,
+        "hit_rate": 0.3672316384180791,
+        "sharpe": -0.023847637749852005,
+        "max_drawdown": 0.8705076699801889,
+        "total_pnl": -0.7927789274884631,
+        "avg_ev": 0.08538021248348336
+      }
+    },
+    "FRA-Ligue 1": {
+      "n_predictions": 2330,
+      "model_logloss_home": 0.6302856723822418,
+      "market_logloss_home": 0.6110632438380812,
+      "model_brier_home": 0.2197478810104063,
+      "market_brier_home": 0.21188419952800544,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 879.0,
+        "roi": -0.03668784095946642,
+        "yield_per_bet": -0.09455062571103529,
+        "hit_rate": 0.3560864618885097,
+        "sharpe": -0.069205608930254,
+        "max_drawdown": 0.7470755042236756,
+        "total_pnl": -0.4878090027996652,
+        "avg_ev": 0.0868536864352761
+      }
+    },
+    "ENG-Championship": {
+      "n_predictions": 3851,
+      "model_logloss_home": 0.6677408830017402,
+      "market_logloss_home": 0.6496864660588619,
+      "model_brier_home": 0.23600553079383763,
+      "market_brier_home": 0.22900859824788838,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 1182.0,
+        "roi": -0.0524153079378958,
+        "yield_per_bet": -0.022140439932318103,
+        "hit_rate": 0.3553299492385787,
+        "sharpe": -0.015255629458368976,
+        "max_drawdown": 0.9905801665538384,
+        "total_pnl": -0.985869499918587,
+        "avg_ev": 0.09760513936992284
+      }
+    },
+    "NED-Eredivisie": {
+      "n_predictions": 2064,
+      "model_logloss_home": 0.604126893065554,
+      "market_logloss_home": 0.5753625862334615,
+      "model_brier_home": 0.20646966231335856,
+      "market_brier_home": 0.1965944952453746,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 662.0,
+        "roi": -0.06457421327401576,
+        "yield_per_bet": -0.09354984894259818,
+        "hit_rate": 0.3685800604229607,
+        "sharpe": -0.06644297103043038,
+        "max_drawdown": 0.8659495156977257,
+        "total_pnl": -0.80243654022139,
+        "avg_ev": 0.09410206405986832
+      }
+    },
+    "POR-Liga Portugal": {
+      "n_predictions": 2134,
+      "model_logloss_home": 0.5832191121546229,
+      "market_logloss_home": 0.5613468560054056,
+      "model_brier_home": 0.1982995678085431,
+      "market_brier_home": 0.19101576643460216,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 628.0,
+        "roi": -0.002953705811036809,
+        "yield_per_bet": -0.075,
+        "hit_rate": 0.3471337579617834,
+        "sharpe": -0.04679587408013665,
+        "max_drawdown": 0.2858270162021903,
+        "total_pnl": -0.03015551890893986,
+        "avg_ev": 0.09711767911675794
+      }
+    },
+    "BRA-Serie A": {
+      "n_predictions": 4722,
+      "model_logloss_home": 0.6731637677953299,
+      "market_logloss_home": 0.6492733377640169,
+      "model_brier_home": 0.23950657147555365,
+      "market_brier_home": 0.22915216530792284,
+      "model_beats_market_logloss": false,
+      "bets": {
+        "n_bets": 1630.0,
+        "roi": -0.029095350741283648,
+        "yield_per_bet": -0.01850920245398773,
+        "hit_rate": 0.36993865030674844,
+        "sharpe": -0.012536484525404859,
+        "max_drawdown": 0.9449864330876998,
+        "total_pnl": -0.7193643649901285,
+        "avg_ev": 0.08766347740477583
+      }
+    }
+  },
+  "overall": {
+    "n_bets": 8886.0,
+    "roi": -0.02908293607819552,
+    "yield_per_bet": -0.03853814989871709,
+    "hit_rate": 0.3674319153724961,
+    "sharpe": -0.02572910779388214,
+    "max_drawdown": 3.3977277735457094,
+    "total_pnl": -4.071781579109539,
+    "avg_ev": 0.08915681872753364,
+    "significance": {
+      "n": 8886.0,
+      "mean": -0.03853814989871709,
+      "std": 1.497842451726238,
+      "ci95_low": -0.07017423475129417,
+      "ci95_high": -0.008224988746342572,
+      "p_value": 0.9923436939397562,
+      "p_value_bootstrap": 0.9918008199180082
+    },
+    "monte_carlo": {
+      "final_q05": 8596.448658774909,
+      "final_q25": 50094.91177473637,
+      "final_q50": 167231.25937965594,
+      "final_q75": 543637.7970173999,
+      "final_q95": 3196293.9803101635,
+      "final_mean": 811962.1293653228,
+      "prob_ruin": 0.0,
+      "expected_max_drawdown": 0.48187854285517523,
+      "n_bets": 8886.0,
+      "n_paths": 10000.0
+    }
+  },
+  "verdict": "O MODELO NAO BATE O MERCADO: yield <= 0 no backtest. NAO use este sistema para apostar."
+}

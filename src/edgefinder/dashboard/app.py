@@ -6,8 +6,15 @@ veredito do backtest é mostrado como ele é, inclusive quando é ruim.
 """
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# No Streamlit Community Cloud o pacote não está instalado (layout src/);
+# localmente o insert é inócuo porque o pacote já está no ambiente.
+_SRC = Path(__file__).resolve().parents[2]
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 import pandas as pd
 import plotly.express as px
@@ -25,9 +32,65 @@ st.warning(
     "voce nao pode perder."
 )
 
-tab_bt, tab_cal, tab_edges, tab_cov, tab_meta = st.tabs(
-    ["Backtest", "Calibracao", "Edges do dia", "Cobertura de dados", "Metodologia"]
+tab_analise, tab_bt, tab_cal, tab_edges, tab_cov, tab_meta = st.tabs(
+    [
+        "Analise do dia",
+        "Backtest",
+        "Calibracao",
+        "Edges validados",
+        "Cobertura de dados",
+        "Metodologia",
+    ]
 )
+
+with tab_analise:
+    path = settings.reports_dir / "analysis_today.parquet"
+    if not path.exists():
+        st.info(
+            "Sem analise gravada. Rode: uv run edgefinder collect-odds e depois "
+            "uv run edgefinder analise"
+        )
+    else:
+        st.caption(
+            "ANALISE, nao recomendacao validada. Lentes: preco vs consenso de-vigado "
+            "(unica vantagem objetiva), modelo (com o proprio status no rotulo) e "
+            "forma recente. Verde = defensavel; amarelo = neutro; vermelho = evitar."
+        )
+        an = pd.read_parquet(path)
+        so_def = st.toggle("Mostrar so o que e defensavel", value=False)
+        view = an[an["veredicto"] == "defensavel"] if so_def else an
+        st.dataframe(
+            view[
+                [
+                    "jogo",
+                    "kickoff",
+                    "mercado",
+                    "selecao",
+                    "linha",
+                    "melhor_odd",
+                    "odd_justa",
+                    "ev_consenso",
+                    "p_modelo",
+                    "ev_modelo",
+                    "veredicto",
+                ]
+            ].style.map(
+                lambda v: {
+                    "defensavel": "color: green",
+                    "neutro": "color: orange",
+                    "evitar": "color: red",
+                }.get(str(v), ""),
+                subset=["veredicto"],
+            ),
+            use_container_width=True,
+        )
+        for _, r in view.iterrows():
+            with st.expander(
+                f"{r['jogo']} - {r['mercado']} {r['selecao']}"
+                f"{f' {r.linha:g}' if r['linha'] else ''} @ {r['melhor_odd']:.2f}"
+                f" ({r['veredicto']})"
+            ):
+                st.write(r["explicacao"])
 
 
 def _load_summary() -> dict[str, Any] | None:

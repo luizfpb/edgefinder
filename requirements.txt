@@ -1,0 +1,14 @@
+# Dependencias MINIMAS do dashboard para o Streamlit Community Cloud.
+# O ambiente completo de desenvolvimento usa uv + pyproject.toml; este arquivo
+# existe so porque o deploy gratuito instala a partir dele. O site e um VIEWER
+# dos artefatos commitados em data/reports — o scraping e o backtest rodam na
+# maquina local (o FBref bloqueia IP de datacenter; verificado na Fase 0).
+streamlit>=1.36
+plotly>=5.22
+pandas>=2.2
+pyarrow>=16
+numpy>=1.26
+sqlalchemy>=2.0
+pydantic>=2.7
+pydantic-settings>=2.3
+structlog>=24.1

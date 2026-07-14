@@ -1,0 +1,86 @@
+{
+  "ENG-Premier League|understat|shots": {
+    "split": {
+      "desc": "2223+2324 -> 2425",
+      "n_train": 22729,
+      "n_test": 11567
+    },
+    "poisson": {
+      "n_params": 1.0,
+      "loglik_train": -30798.61973318735,
+      "aic_train": 61599.2394663747,
+      "bic_train": 61607.27086329586,
+      "log_loss_test": 1.332798335192587
+    },
+    "gamma_poisson": {
+      "n_params": 2.0,
+      "loglik_train": -29116.888581304014,
+      "aic_train": 58237.77716260803,
+      "bic_train": 58253.83995645034,
+      "log_loss_test": 1.263348002878049
+    }
+  },
+  "BRA-Serie A|fbref|shots": {
+    "split": {
+      "desc": "2023+2024 -> 2025",
+      "n_train": 23860,
+      "n_test": 11975
+    },
+    "poisson": {
+      "n_params": 1.0,
+      "loglik_train": -31484.874219472906,
+      "aic_train": 62971.74843894581,
+      "bic_train": 62979.82839764146,
+      "log_loss_test": 1.301453744043531
+    },
+    "gamma_poisson": {
+      "n_params": 2.0,
+      "loglik_train": -30180.519528049925,
+      "aic_train": 60365.03905609985,
+      "bic_train": 60381.198973491155,
+      "log_loss_test": 1.2482747982549616
+    }
+  },
+  "BRA-Serie A|fbref|yellow_cards": {
+    "split": {
+      "desc": "2023+2024 -> 2025",
+      "n_train": 23860,
+      "n_test": 11975
+    },
+    "poisson": {
+      "n_params": 1.0,
+      "loglik_train": -11133.066099127023,
+      "aic_train": 22268.132198254047,
+      "bic_train": 22276.2121569497,
+      "log_loss_test": 0.44413308080487185
+    },
+    "gamma_poisson": {
+      "n_params": 2.0,
+      "loglik_train": -11133.263428467038,
+      "aic_train": 22270.526856934077,
+      "bic_train": 22286.686774325382,
+      "log_loss_test": 0.4441499866998453
+    }
+  },
+  "ENG-Premier League|fbref|shots_on_target": {
+    "split": {
+      "desc": "70/30 temporal dentro de 2425",
+      "n_train": 8096,
+      "n_test": 3471
+    },
+    "poisson": {
+      "n_params": 1.0,
+      "loglik_train": -5807.385773946979,
+      "aic_train": 11616.771547893957,
+      "bic_train": 11623.770673285484,
+      "log_loss_test": 0.6655766937730456
+    },
+    "gamma_poisson": {
+      "n_params": 2.0,
+      "loglik_train": -5673.841419384611,
+      "aic_train": 11351.682838769222,
+      "bic_train": 11365.681089552276,
+      "log_loss_test": 0.6557826907980249
+    }
+  }
+}

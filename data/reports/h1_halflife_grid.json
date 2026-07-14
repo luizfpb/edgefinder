@@ -1,0 +1,36 @@
+{
+  "league": "ENG-Premier League",
+  "market_logloss_home": 0.597048444187482,
+  "grid": {
+    "60.0": {
+      "model_logloss_home": 0.6370426742733134,
+      "model_brier_home": 0.21974776227661041,
+      "n": 2654.0,
+      "elapsed_s": 120.9
+    },
+    "90.0": {
+      "model_logloss_home": 0.6248842421883236,
+      "model_brier_home": 0.21552878891028185,
+      "n": 2654.0,
+      "elapsed_s": 132.1
+    },
+    "180.0": {
+      "model_logloss_home": 0.6166692949405702,
+      "model_brier_home": 0.2124432400182393,
+      "n": 2654.0,
+      "elapsed_s": 124.5
+    },
+    "365.0": {
+      "model_logloss_home": 0.6151191480551079,
+      "model_brier_home": 0.21258246808531417,
+      "n": 2654.0,
+      "elapsed_s": 109.7
+    },
+    "730.0": {
+      "model_logloss_home": 0.617599854939733,
+      "model_brier_home": 0.214213136024419,
+      "n": 2654.0,
+      "elapsed_s": 84.9
+    }
+  }
+}

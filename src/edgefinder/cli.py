@@ -56,14 +56,20 @@ def collect_odds(
     competitions: Annotated[list[str] | None, typer.Option("--comp")] = None,
 ) -> None:
     """Snapshot de odds correntes (The Odds API; exige ODDS_API_KEY no .env)."""
+    from edgefinder.edge.tracking import link_snapshots_to_matches, update_clv
     from edgefinder.ingest.odds_api import collect_h2h_snapshot
     from edgefinder.storage.repository import get_engine, init_db
 
     engine = get_engine()
     init_db(engine)
-    comps = competitions or ["ENG-Premier League", "BRA-Serie A"]
+    comps = competitions or ["ENG-Premier League", "BRA-Serie A", "INT-World Cup"]
     n = collect_h2h_snapshot(engine, comps)
-    console.print(f"{n} linhas de odds gravadas para {comps}")
+    linked = link_snapshots_to_matches(engine)
+    clv_updates = update_clv(engine)
+    console.print(
+        f"{n} linhas de odds gravadas para {comps} "
+        f"({linked} snapshots vinculados a jogos, {clv_updates} apostas com CLV atualizado)"
+    )
 
 
 @app.command()
@@ -193,6 +199,68 @@ def edges(
             r["explanation"],
         )
     console.print(table)
+
+
+@app.command()
+def analise(
+    top: Annotated[int, typer.Option(help="quantas selecoes mostrar")] = 12,
+    so_defensaveis: bool = typer.Option(False, "--so-defensaveis"),
+) -> None:
+    """Analisa os jogos futuros com odds coletadas: o que e defensavel apostar.
+
+    ANALISE, nao recomendacao validada: nenhum modelo nosso provou bater o
+    mercado (por isso `edges` segue travado). Aqui as lentes sao (1) preco vs
+    consenso de-vigado das casas, (2) modelo com rotulo honesto do proprio
+    status e (3) forma recente com o tamanho da amostra na cara.
+    """
+    from edgefinder.edge.analysis import analyze_today
+    from edgefinder.storage.repository import get_engine
+
+    df = analyze_today(get_engine())
+    if df.empty:
+        console.print(
+            "[yellow]Nenhum jogo futuro com odds coletadas. Rode collect-odds "
+            "(e confira ODDS_API_KEY no .env).[/yellow]"
+        )
+        raise typer.Exit(0)
+    if so_defensaveis:
+        df = df[df["veredicto"] == "defensavel"]
+    df = df.head(top)
+    table = Table(title="Analise do dia (ordenada por defensabilidade)")
+    for col in (
+        "jogo",
+        "kickoff",
+        "mercado",
+        "selecao",
+        "linha",
+        "melhor odd",
+        "odd justa",
+        "EV vs consenso",
+        "EV modelo",
+        "veredicto",
+    ):
+        table.add_column(col)
+    import pandas as pd
+
+    for _, r in df.iterrows():
+        style = {"defensavel": "green", "neutro": "yellow", "evitar": "red"}[r["veredicto"]]
+        table.add_row(
+            r["jogo"],
+            str(r["kickoff"])[:16],
+            r["mercado"],
+            r["selecao"],
+            f"{r['linha']:g}" if r["linha"] else "-",
+            f"{r['melhor_odd']:.2f}",
+            f"{r['odd_justa']:.2f}",
+            f"{r['ev_consenso']:+.1%}",
+            f"{r['ev_modelo']:+.1%}" if pd.notna(r["ev_modelo"]) else "-",
+            f"[{style}]{r['veredicto']}[/{style}]",
+        )
+    console.print(table)
+    console.print(
+        "[dim]Detalhes de cada linha (consenso, modelo, forma): "
+        "expanda no dashboard ou leia data/reports/analysis_today.parquet[/dim]"
+    )
 
 
 @app.command()
