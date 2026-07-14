@@ -7,9 +7,12 @@ que este módulo existe para impedir. Toda comparação com colunas do banco
 deve usar `utcnow_naive()`.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 
 def utcnow_naive() -> datetime:
     """Agora em UTC, sem tzinfo — o formato canônico do banco."""
-    return datetime.now(UTC).replace(tzinfo=None)
+    # timezone.utc em vez de datetime.UTC (3.11+): o Streamlit Cloud roda o
+    # dashboard num Python mais antigo que o 3.12 do desenvolvimento, e este
+    # módulo está na cadeia de import da aba de sequências.
+    return datetime.now(timezone.utc).replace(tzinfo=None)  # noqa: UP017
