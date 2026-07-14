@@ -14,7 +14,9 @@ from collections.abc import Mapping
 from typing import Final
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
+
+from edgefinder.market.devig import devig
 
 FloatArray = NDArray[np.float64]
 
@@ -79,3 +81,23 @@ def consensus_prob(
     if total <= 0.0:
         raise ValueError("probabilidades agregadas somam zero; entradas degeneradas")
     return media / total
+
+
+def consensus_from_odds(
+    odds_por_casa: Mapping[str, ArrayLike],
+    method: str = "shin",
+    weights: Mapping[str, float] | None = None,
+) -> FloatArray:
+    """De-viga as odds de cada casa e agrega no consenso ponderado.
+
+    É a operação "pivot de odds -> probabilidade justa do mercado" usada
+    tanto pela análise do dia quanto pelos edges — vive aqui para existir
+    UMA implementação (antes estava duplicada em edge/today.py e
+    edge/analysis.py como média simples, que ignora que a Pinnacle vale
+    mais que uma casa recreativa).
+
+    Shin como método default: H3 no research-log (2026-07-14) mediu Shin
+    melhor que o proporcional e empatado com o aditivo dentro do ruído.
+    """
+    probs = {casa: devig(o, method=method) for casa, o in odds_por_casa.items()}
+    return consensus_prob(probs, weights=weights)

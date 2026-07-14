@@ -37,17 +37,15 @@ from edgefinder.models.dixon_coles import DixonColes
 
 log = structlog.get_logger()
 
-MIN_EV_BY_TIER = {1: "min_ev_tier1", 2: "min_ev_tier2", 3: "min_ev_tier3"}
-
 
 @dataclass
 class BacktestConfig:
     competitions: list[str]
-    half_life_days: float = 180.0
+    # Defaults dos hiperparâmetros do DC vivem em config.Settings (fonte única);
+    # aqui só o espelho para permitir override por experimento.
+    half_life_days: float = settings.dc_half_life_days
     freq: str = "W"
-    # >= 2 temporadas de treino mínimo: com menos que isso o Dixon-Coles produz
-    # parâmetros ruidosos e "edges" gigantes que são erro de estimação, não valor.
-    min_train: int = 760
+    min_train: int = settings.dc_min_train_matches
     # start_season delimita o PERÍODO DE APOSTA/AVALIAÇÃO; o treino sempre usa
     # toda a história anterior disponível (filtrar o treino aqui seria bug).
     start_season: str = "1920"
@@ -156,7 +154,7 @@ def run_1x2_backtest(engine: Engine, config: BacktestConfig) -> dict[str, Any]:
 def _evaluate_1x2(df: pd.DataFrame, comp: str, config: BacktestConfig) -> pd.DataFrame:
     """De-vig do fechamento, EV, decisão de aposta e liquidação por linha."""
     tier = COMPETITION_TIERS.get(comp, 2)
-    min_ev = getattr(settings, MIN_EV_BY_TIER[tier])
+    min_ev = settings.min_ev_for_tier(tier)
 
     probs_market = np.vstack(
         [

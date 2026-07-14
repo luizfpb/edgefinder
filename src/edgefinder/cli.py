@@ -5,9 +5,12 @@ que um módulo pesado esteja quebrado, e o aviso obrigatório aparece sempre.
 """
 
 import json
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
+
+if TYPE_CHECKING:
+    import pandas as pd
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -76,12 +79,16 @@ def collect_odds(
 def backtest(
     market: Annotated[str, typer.Option(help="por ora: 1x2")] = "1x2",
     competitions: Annotated[list[str] | None, typer.Option("--comp")] = None,
-    half_life: Annotated[float, typer.Option(help="meia-vida do decaimento (dias)")] = 180.0,
+    half_life: Annotated[
+        float | None,
+        typer.Option(help="meia-vida do decaimento (dias); default: otimo do H1 em config"),
+    ] = None,
     start_season: str = "1920",
     freq: str = "W",
 ) -> None:
     """Backtest walk-forward contra odds de fechamento historicas."""
     from edgefinder.backtest.runner import BacktestConfig, run_1x2_backtest
+    from edgefinder.config import settings
     from edgefinder.storage.repository import get_engine
 
     if market != "1x2":
@@ -92,7 +99,7 @@ def backtest(
         raise typer.Exit(1)
     config = BacktestConfig(
         competitions=competitions or DEFAULT_BACKTEST,
-        half_life_days=half_life,
+        half_life_days=half_life if half_life is not None else settings.dc_half_life_days,
         start_season=start_season,
         freq=freq,
     )
@@ -226,6 +233,16 @@ def analise(
     if so_defensaveis:
         df = df[df["veredicto"] == "defensavel"]
     df = df.head(top)
+    _print_analysis_table(df)
+    console.print(
+        "[dim]Detalhes de cada linha (consenso, modelo, sequencia, forma): "
+        "expanda no dashboard ou leia data/reports/analysis_today.parquet[/dim]"
+    )
+
+
+def _print_analysis_table(df: "pd.DataFrame") -> None:
+    import pandas as pd
+
     table = Table(title="Analise do dia (ordenada por defensabilidade)")
     for col in (
         "jogo",
@@ -237,11 +254,10 @@ def analise(
         "odd justa",
         "EV vs consenso",
         "EV modelo",
+        "sequencia",
         "veredicto",
     ):
         table.add_column(col)
-    import pandas as pd
-
     for _, r in df.iterrows():
         style = {"defensavel": "green", "neutro": "yellow", "evitar": "red"}[r["veredicto"]]
         table.add_row(
@@ -254,13 +270,249 @@ def analise(
             f"{r['odd_justa']:.2f}",
             f"{r['ev_consenso']:+.1%}",
             f"{r['ev_modelo']:+.1%}" if pd.notna(r["ev_modelo"]) else "-",
+            str(r.get("sequencia", "") or "-"),
             f"[{style}]{r['veredicto']}[/{style}]",
         )
     console.print(table)
+
+
+@app.command()
+def sequencias(
+    time: Annotated[str, typer.Argument(help="nome canonico do time (ex.: 'arsenal')")],
+    adversario: Annotated[str | None, typer.Argument(help="opcional: o outro time")] = None,
+    n: Annotated[int, typer.Option("--n", help="janela: ultimos N jogos")] = 5,
+    comp: Annotated[str | None, typer.Option("--comp", help="filtrar por competicao")] = None,
+) -> None:
+    """Tabela de sequencias: em quantos dos ultimos N jogos aconteceu cada coisa.
+
+    Com dois times, mostra casa, fora e o combinado ("N de 2N"). Sequencia e
+    contexto descritivo, NAO probabilidade: amostra de 5 jogos e minuscula e o
+    mercado ja precifica tendencia obvia.
+    """
+    from edgefinder.edge.streaks import last_matches, match_streak_table, team_streaks
+    from edgefinder.storage.repository import get_engine
+
+    engine = get_engine()
+    if adversario:
+        df = match_streak_table(engine, time, adversario, n)
+        if (df[time] == "0/0").all():
+            console.print(f"[yellow]Sem historico para '{time}' no banco.[/yellow]")
+            raise typer.Exit(1)
+        table = Table(title=f"Sequencias - ultimos {n} jogos de cada time")
+        for col in df.columns:
+            table.add_column(str(col))
+        for _, r in df.iterrows():
+            table.add_row(*(str(v) for v in r))
+        console.print(table)
+    else:
+        view = last_matches(engine, time, n, competition=comp)
+        if view.empty:
+            console.print(f"[yellow]Sem historico para '{time}' no banco.[/yellow]")
+            raise typer.Exit(1)
+        table = Table(title=f"Sequencias de {time} - ultimos {len(view)} jogos")
+        table.add_column("condicao")
+        table.add_column("contagem")
+        for streak_line in team_streaks(view, n):
+            table.add_row(streak_line.label, f"{streak_line.hits} de {streak_line.total}")
+        console.print(table)
+        jogos = Table(title="Jogos considerados (mais recente primeiro)")
+        for col in ("data", "adversario", "local", "placar"):
+            jogos.add_column(col)
+        for _, r in view.iterrows():
+            jogos.add_row(
+                str(r["match_date"])[:10],
+                str(r["opponent"]),
+                str(r["venue"]),
+                f"{int(r['gf'])}x{int(r['ga'])}",
+            )
+        console.print(jogos)
     console.print(
-        "[dim]Detalhes de cada linha (consenso, modelo, forma): "
-        "expanda no dashboard ou leia data/reports/analysis_today.parquet[/dim]"
+        "[dim]Sequencia nao e probabilidade: use como contexto, nunca como prova de valor.[/dim]"
     )
+
+
+bet_app = typer.Typer(help="Registro e liquidacao de apostas (paper por default).")
+app.add_typer(bet_app, name="bet")
+
+
+@bet_app.command("add")
+def bet_add(
+    match_id: Annotated[int, typer.Argument(help="id do jogo (coluna match_id da analise)")],
+    market: Annotated[str, typer.Argument(help="1x2 | ou")],
+    selection: Annotated[str, typer.Argument(help="home|draw|away|over|under")],
+    odds: Annotated[float, typer.Argument(help="odd decimal tomada")],
+    stake: Annotated[float, typer.Option("--stake")] = 1.0,
+    line: Annotated[float, typer.Option("--line", help="linha (OU); 0 para 1x2")] = 0.0,
+    bookmaker: Annotated[str, typer.Option("--book")] = "",
+    real: Annotated[bool, typer.Option("--real", help="aposta real (default: paper)")] = False,
+) -> None:
+    """Registra uma aposta manualmente para rastrear CLV e resultado."""
+    from edgefinder.edge.tracking import record_paper_bet
+    from edgefinder.storage.repository import get_engine
+
+    created = record_paper_bet(
+        get_engine(),
+        match_id=match_id,
+        market=market,
+        selection=selection,
+        odds_taken=odds,
+        stake=stake,
+        bookmaker=bookmaker,
+        line=line,
+        is_paper=not real,
+    )
+    if created:
+        console.print(f"Aposta registrada: match {match_id} {market} {selection} @ {odds:.2f}")
+    else:
+        console.print("[yellow]Aposta identica ja registrada (dedup) — nada feito.[/yellow]")
+
+
+@bet_app.command("settle")
+def bet_settle() -> None:
+    """Liquida apostas de jogos ja disputados e atualiza o CLV das encerradas."""
+    from edgefinder.edge.tracking import link_snapshots_to_matches, settle_bets, update_clv
+    from edgefinder.storage.repository import get_engine
+
+    engine = get_engine()
+    linked = link_snapshots_to_matches(engine)
+    clv_n = update_clv(engine)
+    settled = settle_bets(engine)
+    console.print(
+        f"{linked} snapshots vinculados, {clv_n} apostas com CLV atualizado, "
+        f"{settled} apostas liquidadas."
+    )
+
+
+@bet_app.command("list")
+def bet_list(
+    limit: Annotated[int, typer.Option("--limit")] = 30,
+) -> None:
+    """Lista as apostas registradas com CLV e resultado."""
+    from edgefinder.storage.repository import get_engine, read_df
+
+    df = read_df(
+        get_engine(),
+        """
+        SELECT b.id, th.name || ' x ' || ta.name AS jogo, b.market, b.selection,
+               b.line, b.odds_taken, b.closing_odds, b.clv, b.result, b.pnl,
+               b.is_paper, b.placed_at
+        FROM bets b
+        JOIN matches m ON m.id = b.match_id
+        JOIN teams th ON th.id = m.home_team_id
+        JOIN teams ta ON ta.id = m.away_team_id
+        ORDER BY b.placed_at DESC LIMIT :n
+        """,
+        {"n": limit},
+    )
+    if df.empty:
+        console.print(
+            "[yellow]Nenhuma aposta registrada. O comando 'daily' registra paper bets "
+            "automaticamente para as selecoes defensaveis; ou use 'bet add'.[/yellow]"
+        )
+        return
+    import pandas as pd
+
+    table = Table(title=f"Apostas registradas (ultimas {len(df)})")
+    for col in ("jogo", "mercado", "selecao", "linha", "odd", "fechamento", "CLV", "resultado"):
+        table.add_column(col)
+    for _, r in df.iterrows():
+        table.add_row(
+            str(r["jogo"]),
+            str(r["market"]),
+            str(r["selection"]),
+            f"{r['line']:g}" if r["line"] else "-",
+            f"{r['odds_taken']:.2f}",
+            f"{r['closing_odds']:.2f}" if pd.notna(r["closing_odds"]) else "-",
+            f"{r['clv']:+.2%}" if pd.notna(r["clv"]) else "-",
+            str(r["result"] or "aberta"),
+        )
+    console.print(table)
+
+
+@app.command()
+def daily(
+    top: Annotated[int, typer.Option(help="quantas selecoes mostrar")] = 12,
+    sem_odds: Annotated[
+        bool, typer.Option("--sem-odds", help="pula a coleta (nao gasta creditos)")
+    ] = False,
+) -> None:
+    """Fluxo diario completo em um comando: coleta, analisa, registra e mede.
+
+    Passos: (1) snapshot de odds (The Odds API), (2) vincula snapshots e
+    atualiza CLV, (3) liquida apostas de jogos encerrados, (4) analisa os
+    jogos futuros, (5) registra paper bets das selecoes defensaveis, (6)
+    mostra a analise, o estado do CLV e os creditos consumidos no mes.
+    """
+    from edgefinder.config import settings
+    from edgefinder.edge.analysis import analyze_today
+    from edgefinder.edge.tracking import (
+        link_snapshots_to_matches,
+        record_defensible_paper_bets,
+        settle_bets,
+        update_clv,
+    )
+    from edgefinder.ingest.odds_api import collect_h2h_snapshot, credits_used_this_month
+    from edgefinder.storage.repository import get_engine, init_db
+
+    engine = get_engine()
+    init_db(engine)
+
+    if not sem_odds:
+        comps = ["ENG-Premier League", "BRA-Serie A", "INT-World Cup"]
+        n = collect_h2h_snapshot(engine, comps)
+        console.print(f"1/6 coleta: {n} linhas de odds ({comps})")
+    else:
+        console.print("1/6 coleta: pulada (--sem-odds)")
+
+    linked = link_snapshots_to_matches(engine)
+    clv_updates = update_clv(engine)
+    console.print(f"2/6 vinculo: {linked} snapshots ligados a jogos, {clv_updates} CLV atualizados")
+
+    settled = settle_bets(engine)
+    console.print(f"3/6 liquidacao: {settled} apostas resolvidas")
+
+    df = analyze_today(engine)
+    if df.empty:
+        console.print(
+            "[yellow]4/6 analise: nenhum jogo futuro com odds coletadas "
+            "(confira ODDS_API_KEY no .env).[/yellow]"
+        )
+    else:
+        console.print(f"4/6 analise: {len(df)} selecoes avaliadas")
+
+    recorded = record_defensible_paper_bets(engine, df)
+    console.print(f"5/6 paper bets: {recorded} novas registradas (defensaveis)")
+
+    if not df.empty:
+        _print_analysis_table(df.head(top))
+
+    from edgefinder.storage.repository import read_df
+
+    bets = read_df(engine, "SELECT clv FROM bets WHERE clv IS NOT NULL")
+    if bets.empty:
+        console.print("CLV: ainda sem apostas fechadas — o historico esta sendo construido.")
+    else:
+        console.print(
+            f"CLV: media {bets['clv'].mean():+.2%} | positivo em {(bets['clv'] > 0).mean():.0%} "
+            f"de {len(bets)} apostas"
+        )
+    used = credits_used_this_month(engine)
+    console.print(f"6/6 creditos The Odds API no mes: {used}/{settings.odds_api_monthly_budget}")
+
+    summary_path = settings.reports_dir / "backtest_summary.json"
+    if summary_path.exists():
+        import time
+
+        age_days = (time.time() - summary_path.stat().st_mtime) / 86_400
+        if age_days > 30:
+            console.print(
+                f"[yellow]Aviso: o backtest gravado tem {age_days:.0f} dias; "
+                "rode 'edgefinder backtest' para renovar o veredito.[/yellow]"
+            )
+    else:
+        console.print(
+            "[yellow]Aviso: nenhum backtest gravado; rode 'edgefinder backtest'.[/yellow]"
+        )
 
 
 @app.command()

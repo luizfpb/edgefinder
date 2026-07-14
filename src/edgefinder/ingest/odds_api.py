@@ -11,7 +11,7 @@ Todo consumo é registrado em credit_ledger; o coletor se recusa a estourar o
 orçamento mensal configurado.
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -21,6 +21,7 @@ from sqlalchemy import Engine, func, select
 from edgefinder.config import settings
 from edgefinder.storage import schema
 from edgefinder.storage.repository import upsert
+from edgefinder.timeutil import utcnow_naive
 
 log = structlog.get_logger()
 
@@ -45,13 +46,12 @@ class OddsApiError(RuntimeError):
 
 
 def credits_used_this_month(engine: Engine) -> int:
-    now = datetime.now(UTC)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start = utcnow_naive().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     with engine.connect() as conn:
         total = conn.execute(
             select(func.coalesce(func.sum(schema.credit_ledger.c.credits), 0)).where(
                 schema.credit_ledger.c.api == "theoddsapi",
-                schema.credit_ledger.c.used_at >= month_start.replace(tzinfo=None),
+                schema.credit_ledger.c.used_at >= month_start,
             )
         ).scalar_one()
     return int(total)
@@ -101,7 +101,7 @@ def collect_h2h_snapshot(
                 [
                     {
                         "api": "theoddsapi",
-                        "used_at": datetime.now(UTC).replace(tzinfo=None),
+                        "used_at": utcnow_naive(),
                         "credits": cost_per_call,
                         "endpoint": f"odds:{sport_key}:{markets}:{regions}",
                     }
@@ -134,7 +134,7 @@ def collect_h2h_snapshot(
 
 
 def _rows_from_response(events: list[dict[str, Any]], competition: str) -> list[dict[str, Any]]:
-    collected_at = datetime.now(UTC).replace(tzinfo=None)
+    collected_at = utcnow_naive()
     rows: list[dict[str, Any]] = []
     for event in events:
         home, away = event.get("home_team"), event.get("away_team")

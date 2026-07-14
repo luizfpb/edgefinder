@@ -5,10 +5,8 @@ explicação é inútil. E cada uma respeita o threshold de EV do tier da
 competição (Tier 3 nem chega aqui: nasce desligado, PLAN.md seção 3).
 """
 
-from datetime import datetime
 from typing import Any
 
-import numpy as np
 import pandas as pd
 import structlog
 from sqlalchemy import Engine
@@ -18,13 +16,12 @@ from edgefinder.config import COMPETITION_TIERS, settings
 from edgefinder.data.teamnames import normalize_team_name
 from edgefinder.edge.ev import expected_value
 from edgefinder.edge.kelly import kelly_stake
-from edgefinder.market.devig import devig
+from edgefinder.market.consensus import consensus_from_odds
 from edgefinder.models.dixon_coles import DixonColes
 from edgefinder.storage.repository import read_df
+from edgefinder.timeutil import utcnow_naive
 
 log = structlog.get_logger()
-
-MIN_EV_BY_TIER = {1: "min_ev_tier1", 2: "min_ev_tier2", 3: "min_ev_tier3"}
 
 
 def _latest_snapshots(engine: Engine) -> pd.DataFrame:
@@ -34,7 +31,8 @@ def _latest_snapshots(engine: Engine) -> pd.DataFrame:
         FROM odds_snapshots
         WHERE source = 'theoddsapi' AND commence_time > :now AND market = '1x2'
     """
-    df = read_df(engine, sql, {"now": datetime.now().isoformat(sep=" ")})
+    # commence_time é UTC-naive no banco; hora local aqui deslocaria o filtro.
+    df = read_df(engine, sql, {"now": utcnow_naive().isoformat(sep=" ")})
     if df.empty:
         return df
     df["collected_at"] = pd.to_datetime(df["collected_at"])
@@ -66,9 +64,11 @@ def backtest_gate() -> tuple[bool, str]:
 def today_edges(
     engine: Engine,
     min_ev: float = 0.03,
-    half_life_days: float = 180.0,
+    half_life_days: float | None = None,
     ignore_gate: bool = False,
 ) -> pd.DataFrame:
+    if half_life_days is None:
+        half_life_days = settings.dc_half_life_days
     approved, verdict = backtest_gate()
     if not approved and not ignore_gate:
         log.warning("edges.bloqueado_pelo_backtest", verdict=verdict)
@@ -91,7 +91,7 @@ def today_edges(
 
         if comp not in models:
             train = all_matches[all_matches["competition_id"] == comp]
-            if len(train) < 380:
+            if len(train) < settings.dc_min_train_matches:
                 continue
             models[comp] = DixonColes().fit(
                 train, ref_date=train["match_date"].max(), half_life_days=half_life_days
@@ -108,14 +108,13 @@ def today_edges(
         if not {"home", "draw", "away"}.issubset(pivot.columns):
             continue
         best = pivot.max()
-        p_market = np.mean(
-            [
-                devig(row[["home", "draw", "away"]].to_numpy(), method="shin")
-                for _, row in pivot.dropna().iterrows()
-            ],
-            axis=0,
+        p_market = consensus_from_odds(
+            {
+                str(b): row[["home", "draw", "away"]].to_numpy(dtype=float)
+                for b, row in pivot.dropna().iterrows()
+            }
         )
-        threshold = max(min_ev, getattr(settings, MIN_EV_BY_TIER[COMPETITION_TIERS.get(comp, 2)]))
+        threshold = max(min_ev, settings.min_ev_for_tier(COMPETITION_TIERS.get(comp, 2)))
         for i, sel in enumerate(["home", "draw", "away"]):
             p_model = (p_home, p_draw, p_away)[i]
             odds = float(best[sel])

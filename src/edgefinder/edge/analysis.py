@@ -23,7 +23,6 @@ Veredicto por seleção:
 - "evitar": pagando caro (>3% acima do justo) ou modelo fortemente contra.
 """
 
-from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -32,9 +31,12 @@ import structlog
 from sqlalchemy import Engine
 
 from edgefinder.config import settings
+from edgefinder.edge.streaks import last_matches, market_streak_text
 from edgefinder.ingest.eloratings import read_national_elo
-from edgefinder.market.devig import devig
+from edgefinder.market.consensus import consensus_from_odds
+from edgefinder.models.dixon_coles import DixonColes
 from edgefinder.storage.repository import read_df
+from edgefinder.timeutil import utcnow_naive
 
 log = structlog.get_logger()
 
@@ -78,7 +80,9 @@ def _upcoming_odds(engine: Engine) -> pd.DataFrame:
         JOIN teams ta ON ta.id = m.away_team_id
         WHERE o.source = 'theoddsapi' AND o.commence_time > :now
     """
-    df = read_df(engine, sql, {"now": datetime.now().isoformat(sep=" ")})
+    # commence_time é gravado UTC-naive (odds_api.py); comparar com hora local
+    # deslocaria o filtro de "jogo futuro" em ~3h no Brasil.
+    df = read_df(engine, sql, {"now": utcnow_naive().isoformat(sep=" ")})
     if df.empty:
         return df
     df["collected_at"] = pd.to_datetime(df["collected_at"])
@@ -95,12 +99,18 @@ def _elo_probs_1x2(elo_home: float, elo_away: float) -> tuple[float, float, floa
     Expectativa Elo (empate vale 0.5): We = 1/(10^(-dr/400) + 1).
     Empate aproximado: p_E = 0.27·exp(-(dr/600)^2) — ~27% em jogo parelho,
     caindo com a diferença de força. p_casa = We - p_E/2.
+
+    A subtração do empate pode levar a probabilidade do azarão abaixo de zero
+    quando a diferença de Elo é extrema (We -> 0 com p_E ainda ~0), então o
+    resultado é truncado em zero e renormalizado — probabilidade negativa não
+    existe e propagaria EV inválido.
     """
     dr = elo_home - elo_away
     we = 1.0 / (10.0 ** (-dr / 400.0) + 1.0)
     p_draw = 0.27 * float(np.exp(-((dr / 600.0) ** 2)))
-    p_home = we - p_draw / 2.0
-    return p_home, p_draw, 1.0 - p_home - p_draw
+    p = np.clip(np.array([we - p_draw / 2.0, p_draw, (1.0 - we) - p_draw / 2.0]), 0.0, None)
+    p = p / p.sum()
+    return float(p[0]), float(p[1]), float(p[2])
 
 
 def _team_form(engine: Engine, team: str, n: int = 6) -> str:
@@ -126,17 +136,8 @@ def _team_form(engine: Engine, team: str, n: int = 6) -> str:
     )
 
 
-def _model_probs(
-    engine: Engine, competition: str, home: str, away: str, elo: pd.DataFrame
-) -> tuple[tuple[float, float, float] | None, str]:
-    """Probabilidades do modelo disponível para a competição, com rótulo honesto."""
-    if competition.startswith("INT-"):
-        codes = dict(zip(elo["country_code"], elo["elo"], strict=False))
-        code_h, code_a = ELO_CODES.get(home), ELO_CODES.get(away)
-        if code_h in codes and code_a in codes:
-            probs = _elo_probs_1x2(float(codes[code_h]), float(codes[code_a]))
-            return probs, "elo-selecoes (Tier 3, nunca validado)"
-        return None, "sem modelo (selecao fora do mapa Elo)"
+def _club_model(engine: Engine, competition: str) -> tuple[DixonColes | None, str]:
+    """Dixon-Coles ajustado com a história da competição (ou o motivo da ausência)."""
     matches = read_df(
         engine,
         """
@@ -149,14 +150,44 @@ def _model_probs(
         """,
         {"c": competition},
     )
-    if len(matches) < 760:
+    if len(matches) < settings.dc_min_train_matches:
         return None, "sem modelo (historico insuficiente)"
-    from edgefinder.models.dixon_coles import DixonColes
-
     matches["match_date"] = pd.to_datetime(matches["match_date"])
-    model = DixonColes().fit(matches, ref_date=matches["match_date"].max(), half_life_days=365.0)
+    model = DixonColes().fit(
+        matches,
+        ref_date=matches["match_date"].max(),
+        half_life_days=settings.dc_half_life_days,
+    )
+    return model, "dixon-coles (REPROVADO no backtest 1X2)"
+
+
+def _model_probs(
+    engine: Engine,
+    competition: str,
+    home: str,
+    away: str,
+    elo: pd.DataFrame,
+    club_models: dict[str, tuple[DixonColes | None, str]],
+) -> tuple[tuple[float, float, float] | None, str]:
+    """Probabilidades do modelo disponível para a competição, com rótulo honesto.
+
+    `club_models` cacheia o ajuste por competição dentro de uma execução —
+    re-ajustar o Dixon-Coles do zero para cada jogo era O(jogos) fits.
+    """
+    if competition.startswith("INT-"):
+        codes = dict(zip(elo["country_code"], elo["elo"], strict=False))
+        code_h, code_a = ELO_CODES.get(home), ELO_CODES.get(away)
+        if code_h in codes and code_a in codes:
+            probs = _elo_probs_1x2(float(codes[code_h]), float(codes[code_a]))
+            return probs, "elo-selecoes (Tier 3, nunca validado)"
+        return None, "sem modelo (selecao fora do mapa Elo)"
+    if competition not in club_models:
+        club_models[competition] = _club_model(engine, competition)
+    model, label = club_models[competition]
+    if model is None:
+        return None, label
     try:
-        return model.probs_1x2(home, away), "dixon-coles (REPROVADO no backtest 1X2)"
+        return model.probs_1x2(home, away), label
     except KeyError:
         return None, "sem modelo (time sem historico)"
 
@@ -167,6 +198,8 @@ def analyze_today(engine: Engine) -> pd.DataFrame:
     if odds.empty:
         return pd.DataFrame()
     elo = read_national_elo()
+    club_models: dict[str, tuple[DixonColes | None, str]] = {}
+    n_seq = settings.streak_window
 
     rows: list[dict[str, Any]] = []
     for match_id, ev in odds.groupby("match_id"):
@@ -174,8 +207,10 @@ def analyze_today(engine: Engine) -> pd.DataFrame:
         away = str(ev["away_team"].iloc[0])
         comp = str(ev["competition_id"].iloc[0])
         kickoff = ev["commence_time"].iloc[0]
-        model_probs, model_label = _model_probs(engine, comp, home, away, elo)
+        model_probs, model_label = _model_probs(engine, comp, home, away, elo, club_models)
         form = {home: _team_form(engine, home), away: _team_form(engine, away)}
+        view_home = last_matches(engine, home, n_seq)
+        view_away = last_matches(engine, away, n_seq)
 
         # 1X2
         x = ev[ev["market"] == "1x2"].pivot_table(
@@ -183,8 +218,8 @@ def analyze_today(engine: Engine) -> pd.DataFrame:
         )
         if set(_SELECTIONS).issubset(x.columns):
             x = x.dropna(subset=list(_SELECTIONS))
-            consensus = np.mean(
-                [devig(r[list(_SELECTIONS)].to_numpy()) for _, r in x.iterrows()], axis=0
+            consensus = consensus_from_odds(
+                {str(b): r[list(_SELECTIONS)].to_numpy(dtype=float) for b, r in x.iterrows()}
             )
             for i, sel in enumerate(_SELECTIONS):
                 rows.append(
@@ -203,6 +238,9 @@ def analyze_today(engine: Engine) -> pd.DataFrame:
                         p_model=float(model_probs[i]) if model_probs else None,
                         model_label=model_label,
                         form=form,
+                        streak=market_streak_text(
+                            view_home, view_away, "1x2", sel, 0.0, n_seq, home, away
+                        ),
                     )
                 )
         # Over/Under por linha
@@ -216,8 +254,8 @@ def analyze_today(engine: Engine) -> pd.DataFrame:
             ou = ou.dropna(subset=["over", "under"])
             if ou.empty:
                 continue
-            cons = np.mean(
-                [devig(r[["over", "under"]].to_numpy()) for _, r in ou.iterrows()], axis=0
+            cons = consensus_from_odds(
+                {str(b): r[["over", "under"]].to_numpy(dtype=float) for b, r in ou.iterrows()}
             )
             for i, sel in enumerate(("over", "under")):
                 rows.append(
@@ -236,6 +274,9 @@ def analyze_today(engine: Engine) -> pd.DataFrame:
                         p_model=None,
                         model_label="sem modelo de gols p/ esta linha",
                         form=form,
+                        streak=market_streak_text(
+                            view_home, view_away, "ou", sel, line, n_seq, home, away
+                        ),
                     )
                 )
 
@@ -264,6 +305,7 @@ def _build_row(
     p_model: float | None,
     model_label: str,
     form: dict[str, str],
+    streak: str = "",
 ) -> dict[str, Any]:
     fair_odds = 1.0 / p_consensus if p_consensus > 0 else float("nan")
     ev_consensus = best_odds * p_consensus - 1.0
@@ -287,6 +329,8 @@ def _build_row(
         parts.append(f"modelo [{model_label}]: {p_model:.1%} -> ev {ev_model:+.1%}")
     else:
         parts.append(model_label)
+    if streak:
+        parts.append(f"sequencia: {streak}")
     parts.append(f"forma {home}: {form[home]} | {away}: {form[away]}")
 
     return {
@@ -306,5 +350,6 @@ def _build_row(
         "modelo": model_label,
         "veredicto": verdict,
         "score": score,
+        "sequencia": streak,
         "explicacao": "; ".join(parts),
     }

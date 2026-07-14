@@ -73,8 +73,10 @@ sugerir o que não se pode validar.
 ```text
 uv sync --all-extras          # instala o ambiente (Python 3.12)
 uv run edgefinder --help      # CLI
-uv run edgefinder ingest --league ENG-Premier League --season 2425
-uv run edgefinder backtest --market 1x2 --from-season 1920 --to-season 2425
+uv run edgefinder daily       # fluxo diario completo: coleta, analisa, registra paper bets, mede CLV
+uv run edgefinder sequencias arsenal chelsea --n 5   # "N dos ultimos N" dos dois times
+uv run edgefinder bet list    # apostas registradas, CLV e resultados
+uv run edgefinder backtest --market 1x2
 uv run edgefinder edges --min-ev 0.03
 uv run streamlit run src/edgefinder/dashboard/app.py
 ```
@@ -89,9 +91,13 @@ snapshot a snapshot, e histórico perdido não se recupera de graça. Registre a
 duas tarefas (cmd, uma linha cada):
 
 ```text
-schtasks /Create /TN "EdgeFinder Odds" /TR "cmd /c cd /d C:\Users\luizf\Desktop\PreditorLuib && .venv\Scripts\edgefinder.exe collect-odds" /SC DAILY /ST 10:00
+schtasks /Create /TN "EdgeFinder Daily" /TR "C:\Users\luizf\Desktop\PreditorLuib\scripts\publish.cmd" /SC DAILY /ST 10:00
 schtasks /Create /TN "EdgeFinder Update" /TR "C:\Users\luizf\Desktop\PreditorLuib\scripts\update.cmd" /SC WEEKLY /D MON /ST 08:00
 ```
+
+A tarefa diária roda `edgefinder daily` (coleta odds, vincula snapshots,
+liquida apostas, analisa o dia, registra paper bets das seleções defensáveis
+e atualiza o CLV) e publica `data/reports` para o dashboard.
 
 Justificativa da escolha (vs. Prefect/APScheduler): o Task Scheduler sobrevive
 a reboot sem processo Python residente, tem retry e log nativos — Prefect é um

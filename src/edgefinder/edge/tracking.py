@@ -14,11 +14,12 @@ mostra o CLV como "em construção", não como validado.
 from datetime import datetime
 from typing import Any
 
+import pandas as pd
 import structlog
 from sqlalchemy import Engine, select, update
 
 from edgefinder.storage import schema
-from edgefinder.storage.repository import upsert
+from edgefinder.timeutil import utcnow_naive
 
 log = structlog.get_logger()
 
@@ -32,25 +33,68 @@ def record_paper_bet(
     stake: float,
     bookmaker: str = "",
     line: float = 0.0,
-) -> None:
-    upsert(
-        engine,
-        schema.bets,
-        [
-            {
-                "match_id": match_id,
-                "market": market,
-                "selection": selection,
-                "line": line,
-                "odds_taken": odds_taken,
-                "bookmaker": bookmaker,
-                "stake": stake,
-                "placed_at": datetime.now(),
-                "is_paper": True,
-            }
-        ],
-        conflict_cols=["id"],
-    )
+    is_paper: bool = True,
+) -> bool:
+    """Registra uma aposta; retorna False se já existia (dedup por seleção).
+
+    A chave de dedup é (match_id, market, selection, line, is_paper): rodar o
+    fluxo diário duas vezes não pode duplicar a mesma aposta — duplicata
+    inflaria o CLV médio com pseudo-amostras.
+    """
+    with engine.begin() as conn:
+        exists = conn.execute(
+            select(schema.bets.c.id).where(
+                schema.bets.c.match_id == match_id,
+                schema.bets.c.market == market,
+                schema.bets.c.selection == selection,
+                schema.bets.c.line == line,
+                schema.bets.c.is_paper == is_paper,
+            )
+        ).fetchone()
+        if exists:
+            return False
+        conn.execute(
+            schema.bets.insert().values(
+                match_id=match_id,
+                market=market,
+                selection=selection,
+                line=line,
+                odds_taken=odds_taken,
+                bookmaker=bookmaker,
+                stake=stake,
+                placed_at=utcnow_naive(),
+                is_paper=is_paper,
+            )
+        )
+    return True
+
+
+def record_defensible_paper_bets(engine: Engine, analysis: pd.DataFrame) -> int:
+    """Registra paper bets para toda seleção "defensavel" da análise do dia.
+
+    É isso que fecha o loop de CLV sem depender de disciplina manual: cada
+    análise defensável vira uma aposta de papel com stake fixo 1.0; o coletor
+    segue tirando snapshots até o kickoff e `update_clv` mede se a odd tomada
+    bateu o fechamento. Stake flat porque o objetivo é MEDIR CLV, não simular
+    banca — Kelly aqui exigiria confiar em probabilidades não validadas.
+    """
+    if analysis.empty or "veredicto" not in analysis.columns:
+        return 0
+    recorded = 0
+    for _, r in analysis[analysis["veredicto"] == "defensavel"].iterrows():
+        if record_paper_bet(
+            engine,
+            match_id=int(r["match_id"]),
+            market=str(r["mercado"]),
+            selection=str(r["selecao"]),
+            odds_taken=float(r["melhor_odd"]),
+            stake=1.0,
+            line=float(r["linha"]) if pd.notna(r["linha"]) else 0.0,
+        ):
+            recorded += 1
+    if recorded:
+        log.info("clv.paper_bets_registradas", bets=recorded)
+    return recorded
 
 
 def link_snapshots_to_matches(engine: Engine) -> int:
@@ -122,7 +166,7 @@ def link_snapshots_to_matches(engine: Engine) -> int:
 
 def update_clv(engine: Engine) -> int:
     """Preenche closing_odds/clv das apostas cujo jogo já começou."""
-    now = datetime.now()
+    now = utcnow_naive()  # commence_time no banco é UTC-naive
     with engine.begin() as conn:
         pending = conn.execute(
             select(
@@ -164,12 +208,14 @@ def update_clv(engine: Engine) -> int:
 
 
 def settle_bets(engine: Engine) -> int:
-    """Liquida apostas 1x2 de jogos já disputados (win/lose + pnl)."""
+    """Liquida apostas 1x2 e over/under de jogos já disputados (win/lose/push + pnl)."""
     with engine.begin() as conn:
         pending = conn.execute(
             select(
                 schema.bets.c.id,
+                schema.bets.c.market,
                 schema.bets.c.selection,
+                schema.bets.c.line,
                 schema.bets.c.odds_taken,
                 schema.bets.c.stake,
                 schema.matches.c.home_goals,
@@ -178,18 +224,35 @@ def settle_bets(engine: Engine) -> int:
             .select_from(schema.bets.join(schema.matches))
             .where(
                 schema.bets.c.result.is_(None),
-                schema.bets.c.market == "1x2",
+                schema.bets.c.market.in_(["1x2", "ou"]),
                 schema.matches.c.home_goals.is_not(None),
             )
         ).fetchall()
         settled = 0
-        for bet_id, selection, odds_taken, stake, hg, ag in pending:
-            outcome = "home" if hg > ag else "away" if hg < ag else "draw"
-            won = selection == outcome
-            values: dict[str, Any] = {
-                "result": "win" if won else "lose",
-                "pnl": stake * (odds_taken - 1.0) if won else -stake,
-            }
+        for bet_id, market, selection, line, odds_taken, stake, hg, ag in pending:
+            result = _settle_one(market, selection, float(line or 0.0), int(hg), int(ag))
+            if result is None:
+                continue
+            pnl = {
+                "win": stake * (odds_taken - 1.0),
+                "lose": -stake,
+                "push": 0.0,
+            }[result]
+            values: dict[str, Any] = {"result": result, "pnl": pnl}
             conn.execute(update(schema.bets).where(schema.bets.c.id == bet_id).values(**values))
             settled += 1
     return settled
+
+
+def _settle_one(market: str, selection: str, line: float, hg: int, ag: int) -> str | None:
+    """Resultado de uma aposta dado o placar: win|lose|push (None = mercado desconhecido)."""
+    if market == "1x2":
+        outcome = "home" if hg > ag else "away" if hg < ag else "draw"
+        return "win" if selection == outcome else "lose"
+    if market == "ou":
+        total = hg + ag
+        if total == line:  # linha inteira exata devolve a stake
+            return "push"
+        over = total > line
+        return "win" if (selection == "over") == over else "lose"
+    return None

@@ -26,7 +26,9 @@ COMPETITIONS = [
 
 
 def main() -> int:
-    half_life = float(sys.argv[1]) if len(sys.argv) > 1 else 180.0
+    from edgefinder.config import settings
+
+    half_life = float(sys.argv[1]) if len(sys.argv) > 1 else settings.dc_half_life_days
     freq = sys.argv[2] if len(sys.argv) > 2 else "W"
     t0 = time.time()
     config = BacktestConfig(

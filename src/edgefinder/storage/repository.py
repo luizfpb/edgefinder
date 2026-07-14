@@ -5,7 +5,6 @@ SQLite). Rodar a mesma ingestão duas vezes produz o mesmo banco.
 """
 
 from collections.abc import Iterable, Mapping
-from datetime import datetime
 from typing import Any
 
 import pandas as pd
@@ -14,6 +13,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from edgefinder.config import COMPETITION_TIERS, settings
 from edgefinder.storage import schema
+from edgefinder.timeutil import utcnow_naive
 
 
 def get_engine(url: str | None = None) -> Engine:
@@ -126,7 +126,7 @@ def set_coverage(
                 "dataset": dataset,
                 "status": status,
                 "notes": notes,
-                "checked_at": datetime.utcnow(),
+                "checked_at": utcnow_naive(),
             }
         ],
         conflict_cols=["competition_id", "dataset"],

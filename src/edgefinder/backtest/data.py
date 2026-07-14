@@ -2,19 +2,45 @@
 
 O walk-forward consome DataFrames puros (sem tocar o banco durante a
 simulação): um frame de jogos com resultados e um de odds de fechamento
-de-vigáveis. A ordem de preferência de casa para o benchmark é pinnacle >
-market_avg > bet365 > market_max — a Pinnacle é a referência sharp clássica,
-mas desde 23/07/2025 o football-data.co.uk avisa que o fechamento dela ficou
-não confiável, então a média de mercado cobre os buracos (hipótese H5 no
-research-log).
+de-vigáveis.
+
+Preferência de casa para o benchmark (H5 no research-log, medido 2026-07-14):
+até 23/07/2025 a Pinnacle é a referência sharp clássica (log-loss pareado
+melhor que a média de mercado). A partir dessa data o football-data.co.uk
+avisa que o fechamento dela ficou não confiável — e os dados confirmam: ela
+some de metade dos jogos e, nos que restam, perde para a média de mercado no
+log-loss pareado. Então o benchmark do período recente é market_avg.
 """
 
+import numpy as np
 import pandas as pd
 from sqlalchemy import Engine
 
 from edgefinder.storage.repository import read_df
 
+PINNACLE_UNRELIABLE_FROM = pd.Timestamp("2025-07-23")
 BOOKMAKER_PREFERENCE = ["pinnacle", "market_avg", "bet365", "market_max"]
+BOOKMAKER_PREFERENCE_RECENT = ["market_avg", "market_max", "bet365", "pinnacle"]
+
+
+def _pick_closing(wide: pd.DataFrame) -> pd.DataFrame:
+    """Uma linha por jogo, escolhendo a casa pela preferência do período."""
+    wide = wide.copy()
+    wide["match_date"] = pd.to_datetime(wide["match_date"])
+    rank_pre = {b: i for i, b in enumerate(BOOKMAKER_PREFERENCE)}
+    rank_recent = {b: i for i, b in enumerate(BOOKMAKER_PREFERENCE_RECENT)}
+    recent = wide["match_date"] >= PINNACLE_UNRELIABLE_FROM
+    wide["_rank"] = np.where(
+        recent,
+        wide["bookmaker"].map(rank_recent),
+        wide["bookmaker"].map(rank_pre),
+    )
+    wide = (
+        wide.dropna(subset=["_rank"])
+        .sort_values(["match_id", "_rank"])
+        .drop_duplicates("match_id", keep="first")
+    )
+    return wide.drop(columns=["_rank", "match_date"]).reset_index(drop=True)
 
 
 def matches_frame(
@@ -51,7 +77,7 @@ def closing_odds_1x2(engine: Engine, competitions: list[str]) -> pd.DataFrame:
     placeholders = ",".join(f":c{i}" for i in range(len(competitions)))
     params: dict[str, object] = {f"c{i}": c for i, c in enumerate(competitions)}
     sql = f"""
-        SELECT o.match_id, o.bookmaker, o.selection, o.odds_decimal
+        SELECT o.match_id, o.bookmaker, o.selection, o.odds_decimal, m.match_date
         FROM odds_snapshots o
         JOIN matches m ON m.id = o.match_id
         WHERE m.competition_id IN ({placeholders})
@@ -63,7 +89,7 @@ def closing_odds_1x2(engine: Engine, competitions: list[str]) -> pd.DataFrame:
             columns=["match_id", "bookmaker", "odds_home", "odds_draw", "odds_away"]
         )
     wide = df.pivot_table(
-        index=["match_id", "bookmaker"],
+        index=["match_id", "bookmaker", "match_date"],
         columns="selection",
         values="odds_decimal",
         aggfunc="last",
@@ -71,15 +97,7 @@ def closing_odds_1x2(engine: Engine, competitions: list[str]) -> pd.DataFrame:
     wide = wide.rename(
         columns={"home": "odds_home", "draw": "odds_draw", "away": "odds_away"}
     ).dropna(subset=["odds_home", "odds_draw", "odds_away"])
-    wide["bookmaker"] = pd.Categorical(
-        wide["bookmaker"], categories=BOOKMAKER_PREFERENCE, ordered=True
-    )
-    wide = (
-        wide.dropna(subset=["bookmaker"])
-        .sort_values(["match_id", "bookmaker"])
-        .drop_duplicates("match_id", keep="first")
-    )
-    return wide.reset_index(drop=True)
+    return _pick_closing(wide)
 
 
 def closing_odds_ou25(engine: Engine, competitions: list[str]) -> pd.DataFrame:
@@ -87,7 +105,7 @@ def closing_odds_ou25(engine: Engine, competitions: list[str]) -> pd.DataFrame:
     placeholders = ",".join(f":c{i}" for i in range(len(competitions)))
     params: dict[str, object] = {f"c{i}": c for i, c in enumerate(competitions)}
     sql = f"""
-        SELECT o.match_id, o.bookmaker, o.selection, o.odds_decimal
+        SELECT o.match_id, o.bookmaker, o.selection, o.odds_decimal, m.match_date
         FROM odds_snapshots o
         JOIN matches m ON m.id = o.match_id
         WHERE m.competition_id IN ({placeholders})
@@ -97,20 +115,15 @@ def closing_odds_ou25(engine: Engine, competitions: list[str]) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["match_id", "bookmaker", "odds_over", "odds_under"])
     wide = df.pivot_table(
-        index=["match_id", "bookmaker"], columns="selection", values="odds_decimal", aggfunc="last"
+        index=["match_id", "bookmaker", "match_date"],
+        columns="selection",
+        values="odds_decimal",
+        aggfunc="last",
     ).reset_index()
     wide = wide.rename(columns={"over": "odds_over", "under": "odds_under"}).dropna(
         subset=["odds_over", "odds_under"]
     )
-    wide["bookmaker"] = pd.Categorical(
-        wide["bookmaker"], categories=BOOKMAKER_PREFERENCE, ordered=True
-    )
-    wide = (
-        wide.dropna(subset=["bookmaker"])
-        .sort_values(["match_id", "bookmaker"])
-        .drop_duplicates("match_id", keep="first")
-    )
-    return wide.reset_index(drop=True)
+    return _pick_closing(wide)
 
 
 def player_stats_frame(engine: Engine, competitions: list[str], source: str) -> pd.DataFrame:

@@ -32,9 +32,11 @@ st.warning(
     "voce nao pode perder."
 )
 
-tab_analise, tab_bt, tab_cal, tab_edges, tab_cov, tab_meta = st.tabs(
+tab_analise, tab_seq, tab_clv, tab_bt, tab_cal, tab_edges, tab_cov, tab_meta = st.tabs(
     [
         "Analise do dia",
+        "Sequencias",
+        "CLV / Apostas",
         "Backtest",
         "Calibracao",
         "Edges validados",
@@ -59,22 +61,23 @@ with tab_analise:
         an = pd.read_parquet(path)
         so_def = st.toggle("Mostrar so o que e defensavel", value=False)
         view = an[an["veredicto"] == "defensavel"] if so_def else an
+        cols = [
+            "jogo",
+            "kickoff",
+            "mercado",
+            "selecao",
+            "linha",
+            "melhor_odd",
+            "odd_justa",
+            "ev_consenso",
+            "p_modelo",
+            "ev_modelo",
+            "veredicto",
+        ]
+        if "sequencia" in view.columns:
+            cols.insert(-1, "sequencia")
         st.dataframe(
-            view[
-                [
-                    "jogo",
-                    "kickoff",
-                    "mercado",
-                    "selecao",
-                    "linha",
-                    "melhor_odd",
-                    "odd_justa",
-                    "ev_consenso",
-                    "p_modelo",
-                    "ev_modelo",
-                    "veredicto",
-                ]
-            ].style.map(
+            view[cols].style.map(
                 lambda v: {
                     "defensavel": "color: green",
                     "neutro": "color: orange",
@@ -91,6 +94,102 @@ with tab_analise:
                 f" ({r['veredicto']})"
             ):
                 st.write(r["explicacao"])
+
+
+with tab_seq:
+    st.caption(
+        "Em quantos dos ultimos N jogos aconteceu cada coisa. Sequencia e contexto "
+        "descritivo, NAO probabilidade: amostra pequena e o mercado ja precifica "
+        "tendencia obvia."
+    )
+    try:
+        from edgefinder.edge.streaks import last_matches, match_streak_table, team_streaks
+        from edgefinder.storage.repository import get_engine, read_df
+
+        _eng = get_engine()
+        teams_df = read_df(
+            _eng,
+            """
+            SELECT DISTINCT t.name FROM teams t
+            JOIN matches m ON m.home_team_id = t.id OR m.away_team_id = t.id
+            WHERE m.home_goals IS NOT NULL
+            ORDER BY t.name
+            """,
+        )
+        if teams_df.empty:
+            st.info("Banco sem jogos; rode a ingestao.")
+        else:
+            team_names = teams_df["name"].tolist()
+            c1, c2, c3 = st.columns([3, 3, 1])
+            team_a = c1.selectbox("Time", team_names, index=None, placeholder="escolha um time")
+            team_b = c2.selectbox(
+                "Adversario (opcional)", team_names, index=None, placeholder="opcional"
+            )
+            n_sel = int(c3.number_input("Ultimos N", min_value=3, max_value=30, value=5, step=1))
+            if team_a and team_b:
+                st.dataframe(
+                    match_streak_table(_eng, team_a, team_b, n_sel), use_container_width=True
+                )
+            elif team_a:
+                view_a = last_matches(_eng, team_a, n_sel)
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {"condicao": s.label, "contagem": f"{s.hits} de {s.total}"}
+                            for s in team_streaks(view_a, n_sel)
+                        ]
+                    ),
+                    use_container_width=True,
+                )
+                st.caption("Jogos considerados (mais recente primeiro):")
+                st.dataframe(view_a, use_container_width=True)
+    except Exception as exc:
+        st.error(
+            f"Banco indisponivel ({exc}). As sequencias interativas exigem o banco local; "
+            "no dashboard publicado, a coluna 'sequencia' da aba Analise cobre os jogos do dia."
+        )
+
+with tab_clv:
+    st.caption(
+        "CLV (Closing Line Value): quanto a odd tomada bateu o fechamento. E a unica "
+        "evidencia real de edge — resultado de curto prazo e ruido. Paper bets sao "
+        "registradas automaticamente pelo comando 'edgefinder daily' para toda selecao "
+        "defensavel."
+    )
+    try:
+        from edgefinder.storage.repository import get_engine, read_df
+
+        bets_db = read_df(
+            get_engine(),
+            """
+            SELECT b.placed_at, th.name || ' x ' || ta.name AS jogo, b.market, b.selection,
+                   b.line, b.odds_taken, b.closing_odds, b.clv, b.result, b.pnl, b.is_paper
+            FROM bets b
+            JOIN matches m ON m.id = b.match_id
+            JOIN teams th ON th.id = m.home_team_id
+            JOIN teams ta ON ta.id = m.away_team_id
+            ORDER BY b.placed_at DESC
+            """,
+        )
+        if bets_db.empty:
+            st.info(
+                "Nenhuma aposta registrada ainda — nao e um erro. Rode 'uv run edgefinder "
+                "daily' diariamente: as selecoes defensaveis viram paper bets e o CLV "
+                "acumula sozinho."
+            )
+        else:
+            fechadas = bets_db.dropna(subset=["clv"])
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Apostas registradas", len(bets_db))
+            c2.metric("Com CLV medido", len(fechadas))
+            if not fechadas.empty:
+                c3.metric("CLV medio", f"{fechadas['clv'].mean():+.2%}")
+                c4.metric("% CLV positivo", f"{(fechadas['clv'] > 0).mean():.0%}")
+                fig_clv = px.histogram(fechadas, x="clv", nbins=30, title="Distribuicao do CLV")
+                st.plotly_chart(fig_clv, use_container_width=True)
+            st.dataframe(bets_db, use_container_width=True)
+    except Exception as exc:
+        st.error(f"Banco indisponivel: {exc}")
 
 
 def _load_summary() -> dict[str, Any] | None:

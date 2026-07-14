@@ -57,7 +57,21 @@ se testamos 20 variantes e reportamos só a melhor, o "ganho" é ruído.
   bias), medido por log-loss contra resultados.
 - Teste: ambos sobre PSCH/PSCD/PSCA das ligas europeias; comparar log-loss.
 - Decisão: o método vencedor vira o benchmark oficial do backtest.
-- Resultado: (pendente)
+- Resultado (2026-07-14, scripts/exp_h3_devig.py, 9 ligas, artefato
+  data/reports/h3_devig_comparison.json). Log-loss multiclasse sobre o
+  fechamento da Pinnacle (n=36.306): **proporcional 0.97173 > Shin 0.97147 >
+  aditivo 0.97142**. Mesmo ordenamento em market_avg; em market_max o Shin
+  fica marginalmente melhor que o aditivo.
+  - Shin bate o proporcional, como a hipótese previa — mas a diferença total
+    entre os TRÊS métodos é ~0.0003 nats, essencialmente ruído.
+  - Registro honesto: o aditivo ficou 5e-5 à frente do Shin na Pinnacle, o
+    que não é distinguível de acaso e inverte de casa para casa.
+  - Decisão: **Shin permanece o benchmark oficial** — vence o proporcional
+    (a comparação da hipótese), tem fundamento teórico para o viés
+    favorito-azarão, e a diferença para o aditivo não é material. Nota de
+    processo: o Shin já estava como default do código antes deste teste
+    (decisão antecipada à evidência — o que este diário existe para evitar);
+    o resultado o confirma, mas a ordem foi errada e fica registrada.
 
 ## 2026-07-13 — H4: o modelo bate o mercado? (a pergunta do projeto)
 
@@ -93,4 +107,17 @@ se testamos 20 variantes e reportamos só a melhor, o "ganho" é ruído.
   Pinnacle ficaram não confiáveis a partir de 23/07/2025.
 - Teste: comparar overround e log-loss de `PSC*` vs `MaxC*`/`AvgC*` antes/depois
   de 2025-07; se divergirem, usar AvgC como benchmark no período recente.
-- Resultado: (pendente)
+- Resultado (2026-07-14, scripts/exp_h5_pinnacle.py, 8 ligas europeias,
+  artefato data/reports/h5_pinnacle_reliability.json). Corte em 23/07/2025:
+  - **Cobertura despenca**: pós-corte a Pinnacle só tem fechamento em 1.464
+    de 2.916 jogos (50%); antes cobria ~100% (17.614/17.617).
+  - **Divergência sobe 60%**: |p_pinnacle − p_avg| médio vai de 0.0045 (pré)
+    para 0.0072 (pós).
+  - **Log-loss PAREADO** (mesmos jogos para as duas casas — sem isso a
+    comparação tem viés de seleção): pré-corte a Pinnacle vence a média
+    (0.97193 vs 0.97221); pós-corte ela PERDE (0.96894 vs 0.96878).
+  - Overround da própria Pinnacle sobe de 2,90% para 3,25% — comportamento
+    de casa que deixou de ser a referência sharp.
+  - Decisão aplicada: `backtest/data.py` passa a preferir **market_avg como
+    benchmark a partir de 23/07/2025** (antes disso, Pinnacle segue primeiro
+    na ordem). O aviso do football-data.co.uk se confirma nos dados.

@@ -7,7 +7,8 @@ import pandas as pd
 import pytest
 
 from edgefinder.market.clv import ClvReport, clv, clv_report
-from edgefinder.market.consensus import consensus_prob
+from edgefinder.market.consensus import consensus_from_odds, consensus_prob
+from edgefinder.market.devig import devig
 
 TOL = 1e-9
 
@@ -58,6 +59,35 @@ class TestConsensusProb:
             consensus_prob({"a": np.array([0.6, np.nan])})
         with pytest.raises(ValueError, match="invalido"):
             consensus_prob({"a": np.array([-0.1, 1.1])})
+
+
+class TestConsensusFromOdds:
+    def test_uma_casa_equivale_ao_devig_direto(self) -> None:
+        odds = np.array([2.0, 3.4, 4.2])
+        p = consensus_from_odds({"book": odds})
+        assert p == pytest.approx(devig(odds, method="shin"), abs=TOL)
+
+    def test_soma_um_e_pondera_pela_pinnacle(self) -> None:
+        odds_sharp = np.array([1.90, 3.50, 4.50])
+        odds_soft = np.array([2.10, 3.30, 4.00])
+        p = consensus_from_odds({"pinnacle": odds_sharp, "soft": odds_soft})
+        assert float(p.sum()) == pytest.approx(1.0, abs=TOL)
+        p_igual = consensus_from_odds(
+            {"pinnacle": odds_sharp, "soft": odds_soft},
+            weights={"pinnacle": 1.0, "soft": 1.0},
+        )
+        # com peso maior da pinnacle, o consenso fica mais perto do devig dela
+        p_sharp = devig(odds_sharp, method="shin")
+        assert abs(p[0] - p_sharp[0]) < abs(p_igual[0] - p_sharp[0])
+
+    def test_metodo_proporcional_e_repassado(self) -> None:
+        odds = np.array([2.0, 3.4, 4.2])
+        p = consensus_from_odds({"book": odds}, method="proportional")
+        assert p == pytest.approx(devig(odds, method="proportional"), abs=TOL)
+
+    def test_odds_invalidas_levantam_erro(self) -> None:
+        with pytest.raises(ValueError):
+            consensus_from_odds({"book": np.array([0.9, 3.4, 4.2])})
 
     def test_peso_nao_positivo_levanta_erro(self) -> None:
         with pytest.raises(ValueError, match="> 0"):

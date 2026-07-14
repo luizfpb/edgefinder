@@ -49,6 +49,22 @@ class Settings(BaseSettings):
     min_ev_tier2: float = 0.05
     min_ev_tier3: float = 0.10
 
+    # --- Dixon-Coles: fonte única dos hiperparâmetros de produção ------------
+    # Meia-vida ótima medida no H1 (research-log): ~365d, curva rasa 180-730.
+    dc_half_life_days: float = 365.0
+    # >= 2 temporadas de treino mínimo: com menos, o DC produz parâmetros
+    # ruidosos e "edges" gigantes que são erro de estimação, não valor.
+    dc_min_train_matches: int = 760
+
+    # --- sequências ("N dos últimos N"): tamanho default da janela ----------
+    streak_window: int = 5
+
+    def min_ev_for_tier(self, tier: int) -> float:
+        """Threshold de EV do tier (3 é o default hostil para tier desconhecido)."""
+        return {1: self.min_ev_tier1, 2: self.min_ev_tier2, 3: self.min_ev_tier3}.get(
+            tier, self.min_ev_tier3
+        )
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"sqlite:///{self.db_path}"
