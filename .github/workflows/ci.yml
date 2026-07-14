@@ -1,0 +1,28 @@
+# CI: lint + tipos + testes. Sem rede: os testes usam apenas fixtures
+# sintéticas (IPs de datacenter levam 403 do FBref; scraping em CI é inviável
+# e desnecessário).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar dependências
+        run: uv sync --all-extras
+      - name: Lint (ruff)
+        run: uv run ruff check src tests scripts
+      - name: Formatação (ruff format)
+        run: uv run ruff format --check src tests
+      - name: Tipos (mypy --strict)
+        run: uv run mypy
+      - name: Testes + cobertura mínima no núcleo estatístico
+        run: uv run pytest --cov=edgefinder --cov-report=term-missing --cov-fail-under=80

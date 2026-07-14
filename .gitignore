@@ -1,0 +1,26 @@
+# ambientes e caches de build
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+dist/
+
+# segredos
+.env
+
+# dados: o cache bruto de scraping e pesado e reconstruivel a partir dos
+# scripts de warm; os CSVs pequenos de odds/elo SAO versionados (fonte pode
+# sumir — precedente Opta/FBref).
+data/raw/soccerdata/
+data/raw/warm_logs/
+data/edgefinder.db
+data/models/
+data/reports/
+
+# artefatos de IDE/SO
+.vscode/
+Thumbs.db
