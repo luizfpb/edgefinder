@@ -173,16 +173,21 @@ def last_matches(engine: Engine, team: str, n: int, competition: str | None = No
     return team_view(df, team)
 
 
-def match_streak_table(engine: Engine, home: str, away: str, n: int) -> pd.DataFrame:
+def streak_table(
+    view_home: pd.DataFrame, view_away: pd.DataFrame, home: str, away: str, n: int
+) -> pd.DataFrame:
     """Tabela lado a lado: condição x (casa, fora, combinado), com denominadores.
 
     Colunas: condicao, home, away, combinado — valores no formato "hits/total".
+    Pura (recebe as visões dos times), para servir tanto o banco local quanto
+    o snapshot parquet do dashboard publicado.
     """
-    vh = last_matches(engine, home, n)
-    va = last_matches(engine, away, n)
     rows = []
     for h, a, c in zip(
-        team_streaks(vh, n), team_streaks(va, n), combined_streaks(vh, va, n), strict=True
+        team_streaks(view_home, n),
+        team_streaks(view_away, n),
+        combined_streaks(view_home, view_away, n),
+        strict=True,
     ):
         rows.append(
             {
@@ -193,3 +198,41 @@ def match_streak_table(engine: Engine, home: str, away: str, n: int) -> pd.DataF
             }
         )
     return pd.DataFrame(rows)
+
+
+def match_streak_table(engine: Engine, home: str, away: str, n: int) -> pd.DataFrame:
+    """`streak_table` alimentada pelo banco local."""
+    return streak_table(last_matches(engine, home, n), last_matches(engine, away, n), home, away, n)
+
+
+def matches_snapshot(engine: Engine) -> pd.DataFrame:
+    """Todos os jogos disputados, compactos (5 colunas + competição)."""
+    return read_df(
+        engine,
+        """
+        SELECT m.match_date, th.name AS home_team, ta.name AS away_team,
+               m.home_goals, m.away_goals, m.competition_id
+        FROM matches m
+        JOIN teams th ON th.id = m.home_team_id
+        JOIN teams ta ON ta.id = m.away_team_id
+        WHERE m.home_goals IS NOT NULL
+        ORDER BY m.match_date
+        """,
+    )
+
+
+def export_matches_snapshot(engine: Engine) -> int:
+    """Grava data/reports/matches_streaks.parquet para o dashboard publicado.
+
+    O Streamlit Cloud não tem o banco (gitignored, e o FBref bloqueia IPs de
+    datacenter) — a aba de sequências de lá lê este artefato. Retorna o número
+    de jogos exportados.
+    """
+    from edgefinder.config import settings
+
+    df = matches_snapshot(engine)
+    if df.empty:
+        return 0
+    settings.reports_dir.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(settings.reports_dir / "matches_streaks.parquet")
+    return len(df)

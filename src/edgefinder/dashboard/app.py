@@ -96,58 +96,74 @@ with tab_analise:
                 st.write(r["explicacao"])
 
 
+def _load_matches_for_streaks() -> pd.DataFrame | None:
+    """Jogos disputados: banco local se existir, senao o snapshot parquet.
+
+    O Streamlit Cloud nao tem o banco (gitignored); o comando `daily` exporta
+    data/reports/matches_streaks.parquet exatamente para esta aba.
+    """
+    try:
+        from edgefinder.edge.streaks import matches_snapshot
+        from edgefinder.storage.repository import get_engine
+
+        df = matches_snapshot(get_engine())
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+    snap = settings.reports_dir / "matches_streaks.parquet"
+    if snap.exists():
+        return pd.read_parquet(snap)
+    return None
+
+
 with tab_seq:
     st.caption(
         "Em quantos dos ultimos N jogos aconteceu cada coisa. Sequencia e contexto "
         "descritivo, NAO probabilidade: amostra pequena e o mercado ja precifica "
         "tendencia obvia."
     )
-    try:
-        from edgefinder.edge.streaks import last_matches, match_streak_table, team_streaks
-        from edgefinder.storage.repository import get_engine, read_df
+    matches_seq = _load_matches_for_streaks()
+    if matches_seq is None or matches_seq.empty:
+        st.info(
+            "Sem dados de jogos: rode 'uv run edgefinder daily' (gera o snapshot "
+            "data/reports/matches_streaks.parquet que o site publicado le)."
+        )
+    else:
+        from edgefinder.edge.streaks import streak_table, team_streaks, team_view
 
-        _eng = get_engine()
-        teams_df = read_df(
-            _eng,
-            """
-            SELECT DISTINCT t.name FROM teams t
-            JOIN matches m ON m.home_team_id = t.id OR m.away_team_id = t.id
-            WHERE m.home_goals IS NOT NULL
-            ORDER BY t.name
-            """,
+        matches_seq["match_date"] = pd.to_datetime(matches_seq["match_date"])
+        team_names = sorted(set(matches_seq["home_team"]) | set(matches_seq["away_team"]))
+        c1, c2, c3 = st.columns([3, 3, 1])
+        team_a = c1.selectbox("Time", team_names, index=None, placeholder="escolha um time")
+        team_b = c2.selectbox(
+            "Adversario (opcional)", team_names, index=None, placeholder="opcional"
         )
-        if teams_df.empty:
-            st.info("Banco sem jogos; rode a ingestao.")
-        else:
-            team_names = teams_df["name"].tolist()
-            c1, c2, c3 = st.columns([3, 3, 1])
-            team_a = c1.selectbox("Time", team_names, index=None, placeholder="escolha um time")
-            team_b = c2.selectbox(
-                "Adversario (opcional)", team_names, index=None, placeholder="opcional"
+        n_sel = int(c3.number_input("Ultimos N", min_value=3, max_value=30, value=5, step=1))
+        if team_a and team_b:
+            st.dataframe(
+                streak_table(
+                    team_view(matches_seq, team_a),
+                    team_view(matches_seq, team_b),
+                    team_a,
+                    team_b,
+                    n_sel,
+                ),
+                use_container_width=True,
             )
-            n_sel = int(c3.number_input("Ultimos N", min_value=3, max_value=30, value=5, step=1))
-            if team_a and team_b:
-                st.dataframe(
-                    match_streak_table(_eng, team_a, team_b, n_sel), use_container_width=True
-                )
-            elif team_a:
-                view_a = last_matches(_eng, team_a, n_sel)
-                st.dataframe(
-                    pd.DataFrame(
-                        [
-                            {"condicao": s.label, "contagem": f"{s.hits} de {s.total}"}
-                            for s in team_streaks(view_a, n_sel)
-                        ]
-                    ),
-                    use_container_width=True,
-                )
-                st.caption("Jogos considerados (mais recente primeiro):")
-                st.dataframe(view_a, use_container_width=True)
-    except Exception as exc:
-        st.error(
-            f"Banco indisponivel ({exc}). As sequencias interativas exigem o banco local; "
-            "no dashboard publicado, a coluna 'sequencia' da aba Analise cobre os jogos do dia."
-        )
+        elif team_a:
+            view_a = team_view(matches_seq, team_a)
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {"condicao": s.label, "contagem": f"{s.hits} de {s.total}"}
+                        for s in team_streaks(view_a, n_sel)
+                    ]
+                ),
+                use_container_width=True,
+            )
+            st.caption("Jogos considerados (mais recente primeiro):")
+            st.dataframe(view_a.head(n_sel), use_container_width=True)
 
 with tab_clv:
     st.caption(

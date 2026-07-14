@@ -9,6 +9,7 @@ from edgefinder.edge.streaks import (
     combined_streaks,
     hits_over_line,
     market_streak_text,
+    streak_table,
     team_streaks,
     team_view,
 )
@@ -81,6 +82,18 @@ class TestCombined:
         # alfa ultimos 2: 4x0 e 0x1 -> over0.5 = 2; beta: 0x0 e 0x2 -> over0.5 = 1
         assert combined["total_over_0.5"].hits == 3
         assert combined["total_over_0.5"].total == 4
+
+
+class TestStreakTable:
+    def test_tabela_lado_a_lado(self) -> None:
+        va = team_view(_matches(), "alfa")
+        vb = team_view(_matches(), "beta")
+        df = streak_table(va, vb, "alfa", "beta", 2)
+        assert list(df.columns) == ["condicao", "alfa", "beta", "combinado"]
+        over05 = df[df["condicao"] == "mais de 0.5 gols no jogo"].iloc[0]
+        assert over05["alfa"] == "2/2"
+        assert over05["beta"] == "1/2"
+        assert over05["combinado"] == "3/4"
 
 
 class TestAdHoc:

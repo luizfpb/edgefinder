@@ -483,6 +483,11 @@ def daily(
     recorded = record_defensible_paper_bets(engine, df)
     console.print(f"5/6 paper bets: {recorded} novas registradas (defensaveis)")
 
+    from edgefinder.edge.streaks import export_matches_snapshot
+
+    exported = export_matches_snapshot(engine)
+    console.print(f"snapshot de jogos p/ dashboard publicado: {exported} partidas")
+
     if not df.empty:
         _print_analysis_table(df.head(top))
 
